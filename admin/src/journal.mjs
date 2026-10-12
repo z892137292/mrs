@@ -12,8 +12,11 @@ export class Journal {
     }
     add(kind, data = {}) {
         const v = { result: redact(data.result), reason: redact(data.reason), runId: redact(data.runId), accounts: (data.accounts || []).slice(0, 100).map(redact) }
-        this.db.prepare('INSERT INTO events(time,kind,v) VALUES(?,?,?)').run(new Date().toISOString(), kind, JSON.stringify(v))
-        this.db.exec('DELETE FROM events WHERE id NOT IN (SELECT id FROM events ORDER BY id DESC LIMIT 2000)')
+        try {
+            this.db.prepare('INSERT INTO events(time,kind,v) VALUES(?,?,?)').run(new Date().toISOString(), kind, JSON.stringify(v))
+            this.db.exec('DELETE FROM events WHERE id NOT IN (SELECT id FROM events ORDER BY id DESC LIMIT 2000)')
+            return true
+        } catch { return false } // Journal failure must not make an accepted core operation appear retryable.
     }
     list(after = 0) { return this.db.prepare('SELECT * FROM events WHERE id>? ORDER BY id LIMIT 100').all(after).map(x => ({ ...x, ...JSON.parse(x.v), v: undefined })) }
     recent() { return this.db.prepare('SELECT * FROM events ORDER BY id DESC LIMIT 2000').all().map(x => ({ ...x, ...JSON.parse(x.v), v: undefined })) }

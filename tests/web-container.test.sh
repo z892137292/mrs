@@ -13,13 +13,16 @@ NETWORK="$NAME-net"
 WEB="$NAME-web"
 REWARDS="$NAME-rewards"
 VOLUME="$NAME-data"
+RESTORE_VOLUME="$NAME-restored-data"
+RESTORED="$NAME-restored-web"
 WORK="$(mktemp -d)"
 cleanup() {
     docker logs "$REWARDS" >"$OUT/rewards-service.log" 2>&1 || true
     docker logs "$WEB" >"$OUT/web-service.log" 2>&1 || true
-    docker rm -fv "$WEB" "$REWARDS" >/dev/null 2>&1 || true
+    docker rm -fv "$WEB" "$REWARDS" "$RESTORED" >/dev/null 2>&1 || true
     docker network rm "$NETWORK" >/dev/null 2>&1 || true
     docker volume rm "$VOLUME" >/dev/null 2>&1 || true
+    docker volume rm "$RESTORE_VOLUME" >/dev/null 2>&1 || true
     rm -rf -- "$WORK"
 }
 trap cleanup EXIT
@@ -59,6 +62,31 @@ docker cp "$REWARDS:/tmp/mrs-admin-desktop.png" "$OUT/desktop.png" >/dev/null
 docker stop -t 20 "$WEB" >/dev/null
 test "$(docker inspect --format '{{.State.ExitCode}}' "$WEB")" = 0
 docker exec "$REWARDS" rewards-healthcheck
+# Actual offline Web database backup/restore into a NEW volume. Never export it as an artifact.
+docker run --rm --network none --user 1000:1000 -v "$VOLUME:/data:ro" "$WEB_IMAGE" \
+    tar -C /data -cf - . >"$WORK/web-private-backup.tar"
+chmod 600 "$WORK/web-private-backup.tar"
+sha256sum "$WORK/web-private-backup.tar" >"$WORK/web-private-backup.sha256"
+sha256sum -c "$WORK/web-private-backup.sha256" >/dev/null
+docker volume create "$RESTORE_VOLUME" >/dev/null
+docker run --rm -i --network none --user 1000:1000 -v "$RESTORE_VOLUME:/data" "$WEB_IMAGE" \
+    tar -C /data -xf - <"$WORK/web-private-backup.tar"
+docker run -d --name "$RESTORED" --network "$NETWORK" --network-alias restored-web \
+    --security-opt no-new-privileges:true --cap-drop ALL --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+    -e CONTROL_API_TOKEN="$CONTROL_TOKEN" -e WEB_BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN" \
+    -e CONTROL_URL=http://rewards:8090 -e ADMIN_PUBLIC_URL=http://web:8080 \
+    -v "$RESTORE_VOLUME:/data" "$WEB_IMAGE" >/dev/null
+for ((i=0;i<30;i++)); do
+    if docker exec -u 1000:1000 "$REWARDS" node -e 'fetch("http://restored-web:8080/healthz").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))'; then break; fi
+    sleep 1
+done
+docker exec -u 1000:1000 "$REWARDS" node --input-type=module -e '
+    import assert from "node:assert/strict";
+    const r=await fetch("http://restored-web:8080/api/session");const s=await r.json();assert.equal(s.initialized,true);
+    const cookie=r.headers.get("set-cookie").split(";")[0];
+    const login=await fetch("http://restored-web:8080/api/login",{method:"POST",headers:{cookie,origin:"http://web:8080","content-type":"application/json","x-csrf-token":s.csrf},body:JSON.stringify({username:"admin",password:"ContainerPassword12345"})});
+    assert.equal(login.status,200);console.log("PASS: actual stopped Web tar backup, checksum and new-volume restore/login");' >"$OUT/web-backup-restore.log"
+docker stop -t 20 "$RESTORED" >/dev/null
 docker start "$WEB" >/dev/null
 for ((i=0;i<30;i++)); do
     if docker exec -u 1000:1000 "$REWARDS" node -e 'fetch("http://web:8080/healthz").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))'; then break; fi

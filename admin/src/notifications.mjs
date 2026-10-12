@@ -32,6 +32,7 @@ export class Notifications {
         const e={id:String(event.id || token()),kind:event.kind,time:event.time || new Date().toISOString(),result:redact(event.result),reason:redact(event.reason),accounts:(event.accounts || []).slice(0,100).map(redact)}
         this.store.db.prepare('INSERT OR IGNORE INTO events VALUES(?,?,?,?)').run(e.id,e.time,e.kind,JSON.stringify(e))
         this.store.db.exec('DELETE FROM events WHERE id NOT IN (SELECT id FROM events ORDER BY time DESC LIMIT 2000)')
+        this.store.db.exec("DELETE FROM deliveries WHERE state IN ('sent','failed','dropped') AND id NOT IN (SELECT id FROM deliveries ORDER BY id DESC LIMIT 2000)")
         for (const channel of ['telegram','smtp']) {
             const c=config[channel]
             if (!c.enabled || (e.kind!=='test' && !c.events.includes(e.kind))) continue

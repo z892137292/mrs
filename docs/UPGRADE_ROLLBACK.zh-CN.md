@@ -11,7 +11,7 @@ docker compose -f compose.web.yaml exec rewards rewards-ctl stop
 docker compose -f compose.web.yaml stop
 ```
 
-按原脚本 `--help` 在停止状态执行业务目录备份/恢复；恢复只能到全新目录。新命名卷的停机备份可使用 Docker 本地 tar 工具镜像将整卷归档到私有目录；须确认源卷的实际项目名，不写死旧容器路径，压缩包权限0600。不得把管理员/通知备份上传 GitHub。没有备份加密功能。
+原脚本按项目根目录的 config/sessions/state 备份。候选数据在 web-candidate-data，先建立全新的离线副本及相同目录结构再调用原脚本；不得把根目录旧数据错当候选数据。恢复只能到全新目录。新命名卷的停机备份可使用 Docker 本地 tar 工具镜像将整卷归档到私有目录；须确认源卷的实际项目名，不写死旧容器路径，压缩包权限0600。不得把管理员/通知备份上传 GitHub。没有备份加密功能。
 
 回滚使用保留的旧镜像 digest + 匹配旧版本的停止数据副本，恢复到全新目录并启动独立项目；不要让旧代码直接读取新数据、不要共享正在运行的 sessions/state。旧1.0.3没有Web，回滚核心时同时停止新Web控制服务，或完整回到匹配的一对候选镜像及对应新卷。禁止 docker compose down -v。
 

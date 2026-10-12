@@ -134,3 +134,12 @@ test('durable agent event cursor prevents enqueue loops; connection failure neve
         await close(f.w.server);await f.web.close();f.agent.close();fs.rmSync(f.dir,{recursive:true,force:true})
     }catch(e){await f.cleanup().catch(()=>{});throw e}
 })
+test('agent journal storage failure cannot fail a successful core pause operation',async()=>{
+    const f=await fixture()
+    try{
+        await f.login();f.agent.journal.db.exec('PRAGMA query_only=ON')
+        assert.equal((await f.request('/control',{action:'pause'})).res.status,200)
+        assert.ok(fs.existsSync(path.join(f.env.STATE_DIR,'STOP')))
+        assert.equal(fs.readFileSync(f.env.FAKE_CALLS,'utf8'),'')
+    }finally{await f.cleanup()}
+})
