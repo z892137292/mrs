@@ -13,6 +13,9 @@ OUT="$(cd "$OUT" && pwd -P)"
 NAME="mrs-verify-$(date +%s)-$$"
 WORK="$(mktemp -d)"
 cleanup() {
+    docker logs "$NAME" >"$OUT/final-container.log" 2>&1 || true
+    docker inspect --format '{{json .State}}' "$NAME" >"$OUT/final-container-state.json" 2>/dev/null || true
+    cat "$OUT/final-container.log" >&2 || true
     docker rm -f "$NAME" >/dev/null 2>&1 || true
     rm -rf -- "$WORK"
 }
@@ -31,6 +34,10 @@ docker run -d --name "$NAME" --network none --shm-size=1g \
     -v "$ROOT:/audit-project:ro" "$IMAGE" >"$OUT/container-id.txt"
 for ((i=0;i<30;i++)); do
     if docker exec "$NAME" rewards-healthcheck; then break; fi
+    if [ "$(docker inspect --format '{{.State.Running}}' "$NAME")" != true ]; then
+        echo 'Container exited before healthcheck; inspect final-container.log' >&2
+        exit 1
+    fi
     sleep 1
 done
 docker exec "$NAME" rewards-healthcheck
