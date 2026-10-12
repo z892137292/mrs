@@ -1,6 +1,6 @@
 # Microsoft Rewards Custom · 中文 Web 管理候选版
 
-继续现有项目，成功基线为 v1.0.3，commit `b903b83773304f97347bbcdd54f68946d9ead212`。稳定镜像 `ghcr.io/z892137292/microsoft-rewards-custom:1.0.3` 不覆盖。本分支 `feature/web-admin-notifications` 开发 1.1.0-rc.1；实际构建、测试及镜像发布结果以本分支 Actions 和最终交付报告为准，不能把本文当作成功记录。
+继续现有项目，成功基线为 v1.0.3，commit `b903b83773304f97347bbcdd54f68946d9ead212`。稳定镜像 `ghcr.io/z892137292/microsoft-rewards-custom:1.0.3` 不覆盖。本分支 `feature/web-admin-notifications` 开发 1.1.0-rc.2；实际构建、测试及镜像发布结果以本分支 Actions 和最终交付报告为准，不能把本文当作成功记录。
 
 ## 新增内容
 
@@ -31,7 +31,7 @@ cd admin
 npm ci --ignore-scripts
 npm test
 # 返回项目根目录后（需要真实 Docker）
-docker build --platform linux/amd64 --build-arg APP_VERSION=1.1.0-rc.1 -t mrs-custom:web-ci .
+docker build --platform linux/amd64 --build-arg APP_VERSION=1.1.0-rc.2 -t mrs-custom:web-ci .
 docker build --platform linux/amd64 -f admin/Dockerfile -t mrs-web:ci .
 SOAK_SECONDS=120 bash tests/container.test.sh mrs-custom:web-ci test-results/core
 bash tests/web-container.test.sh mrs-custom:web-ci mrs-web:ci test-results/web

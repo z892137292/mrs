@@ -1,7 +1,7 @@
 name: mrs-web-candidate
 services:
   rewards:
-    image: ${REWARDS_IMAGE:-ghcr.io/z892137292/microsoft-rewards-custom:1.1.0-rc.1}
+    image: ${REWARDS_IMAGE:-ghcr.io/z892137292/microsoft-rewards-custom:1.1.0-rc.2}
     platform: linux/amd64
     restart: unless-stopped
     env_file: [.env]
@@ -27,7 +27,7 @@ services:
       driver: json-file
       options: {max-size: "10m", max-file: "3"}
   web:
-    image: ${WEB_IMAGE:-ghcr.io/z892137292/microsoft-rewards-web-admin:1.1.0-rc.1}
+    image: ${WEB_IMAGE:-ghcr.io/z892137292/microsoft-rewards-web-admin:1.1.0-rc.2}
     platform: linux/amd64
     restart: unless-stopped
     # Only the Web service's own credentials; no ACCOUNT_*, config or sessions mounts.

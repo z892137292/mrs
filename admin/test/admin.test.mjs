@@ -114,8 +114,10 @@ test('logs are sanitized, traversal and symbolic links denied, notifications nev
         assert.equal((await f.request('/logs?date=20261013')).data.length,1)
         const r=await f.request('/logs/'+n+'?download=1');assert.match(r.res.headers.get('content-disposition'),/attachment/);assert.equal(r.res.headers.get('content-type').split(';')[0],'text/plain')
         for(const v of ['SECRETONE','SECRETTWO','PASSWORDVALUE','alice@'])assert.ok(!r.data.includes(v))
+        assert.equal((await f.request('/notifications/test',{})).res.status,409)
         const payload={telegram:{enabled:true,token:'123456:ABC123SECRET_abcdefghijklmnop',chatId:'123'},smtp:{enabled:false,password:'SMTPCREDENTIAL'}}
         assert.equal((await f.request('/notifications',payload)).res.status,200)
+        assert.equal((await f.request('/notifications/test',{})).res.status,202)
         const result=JSON.stringify((await f.request('/notifications')).data);assert.ok(!result.includes('ABC123SECRET') && !result.includes('SMTPCREDENTIAL'))
         assert.equal(fs.statSync(path.join(f.env.WEB_DATA_DIR,'admin.sqlite')).mode&0o777,0o600)
         const html=await fetch(f.w.url+'/');assert.match(await html.text(),/中文|控制台/);assert.ok(html.headers.get('content-security-policy').includes("script-src 'self'"))

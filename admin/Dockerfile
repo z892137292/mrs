@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 FROM node:24-bookworm-slim
-ARG APP_VERSION=1.1.0-rc.1
+ARG APP_VERSION=1.1.0-rc.2
 ARG APP_COMMIT=unknown
 ENV NODE_ENV=production \
     NODE_OPTIONS=--disable-warning=ExperimentalWarning \

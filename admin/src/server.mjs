@@ -28,7 +28,7 @@ export function createWeb(env=process.env, options={}) {
     if(env.WEB_TRUST_PROXY==='true')app.set('trust proxy',1)
     app.use(helmet({contentSecurityPolicy:{directives:{defaultSrc:["'self'"],scriptSrc:["'self'"],styleSrc:["'self'"],connectSrc:["'self'"],imgSrc:["'self'"],objectSrc:["'none'"],frameAncestors:["'none'"],upgradeInsecureRequests:secure?[]:null}},strictTransportSecurity:secure?undefined:false}))
     app.use(express.json({limit:'16kb'}))
-    app.get('/healthz',(_req,res)=>res.json({healthy:true,uid:process.getuid(),version:env.MRS_VERSION || '1.1.0-rc.1'}))
+    app.get('/healthz',(_req,res)=>res.json({healthy:true,uid:process.getuid(),version:env.MRS_VERSION || '1.1.0-rc.2'}))
     app.use(session({name:'mrs.sid',secret:store.get('sessionSecret'),resave:false,saveUninitialized:false,store:new SqliteSessionStore(store),cookie:{httpOnly:true,sameSite:'strict',secure,maxAge:8*3600000}}))
     app.use('/api',(_req,res,next)=>{res.set('Cache-Control','no-store');next()})
     app.get('/api/session',(req,res)=>{
@@ -101,7 +101,11 @@ export function createWeb(env=process.env, options={}) {
         const c=validateConfig(req.body,store.get('notifications'));store.set('notifications',c);store.audit('admin','notification_settings','已保存');res.json(configPublic(c))
     })
     app.post('/api/notifications/test',mutationLimit,(req,res)=>{
-        store.audit('admin','notification_test','已入队');res.status(202).json({eventId:notifications.enqueue({kind:'test',result:'管理员测试通知'})})
+        const config=store.get('notifications')
+        if(!config.telegram.enabled && !config.smtp.enabled){store.audit('admin','notification_test','拒绝：未启用渠道');throw httpError(409,'请至少启用一个已配置的通知渠道')}
+        const eventId=notifications.enqueue({kind:'test',result:'管理员测试通知'})
+        if(!store.db.prepare('SELECT id FROM deliveries WHERE event=? LIMIT 1').get(eventId)){store.audit('admin','notification_test','拒绝：队列已满');throw httpError(429,'通知队列已满，请稍后再试')}
+        store.audit('admin','notification_test','已入队');res.status(202).json({eventId})
     })
     app.get('/api/audit',(_req,res)=>res.json(store.db.prepare('SELECT time,actor,action,result FROM audit ORDER BY id DESC LIMIT 200').all()))
     app.get('/api/events',(_req,res)=>res.json(store.db.prepare('SELECT time,kind,v FROM events ORDER BY time DESC LIMIT 100').all().map(x=>({...x,...JSON.parse(x.v),v:undefined}))))
