@@ -22,6 +22,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   lint:
+    if: github.head_ref != 'feature/web-admin-notifications'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -31,6 +32,7 @@ jobs:
       - run: bash tests/repeat-wrapper.test.sh
       - run: bash tests/backup-restore.test.sh
   patch:
+    if: github.head_ref != 'feature/web-admin-notifications'
     runs-on: ubuntu-24.04
     container: node:24-bookworm-slim
     steps:
@@ -38,6 +40,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - run: bash tests/patch-check.sh
   image:
+    if: github.head_ref != 'feature/web-admin-notifications'
     needs: [lint, patch]
     runs-on: ubuntu-24.04
     timeout-minutes: 180

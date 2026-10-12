@@ -15,6 +15,9 @@ require_uint PGID "$PGID"
 [ $# -gt 0 ] || set -- supervisor
 
 DATA_DIRS=(config sessions state logs diagnostics)
+if is_true "${CONTROL_API_ENABLED:-false}"; then
+    DATA_DIRS+=(control-data)
+fi
 
 if [ "$(id -u)" = 0 ]; then
     : "${TZ:=UTC}"

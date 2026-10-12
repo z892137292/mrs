@@ -2,5 +2,8 @@
 !Dockerfile
 !patches/
 !docker/
+!admin/
+admin/node_modules
+admin/test
 backups
 restore-check

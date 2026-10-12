@@ -18,6 +18,13 @@ supercronic -passthrough-logs "$CRONTAB" &
 SC_PID=$!
 log "Scheduler started (schedule: '$CRON_SCHEDULE', TZ: ${TZ:-UTC})"
 
+# Optional API shares the application UID and namespace. Its failure cannot stop scheduling.
+CONTROL_PID=""
+if is_true "${CONTROL_API_ENABLED:-false}"; then
+    node /opt/mrs-admin/src/agent.mjs &
+    CONTROL_PID=$!
+fi
+
 STARTUP_PID=""
 if is_true "${RUN_ON_START:-false}"; then
     log "RUN_ON_START=true -> starting an immediate run"
@@ -42,6 +49,9 @@ shutdown() {
     # Stop scheduling before stopping the active job: avoid a shutdown/start race.
     kill -TERM "$SC_PID" 2>/dev/null || true
     stop_active_run
+    if [ -n "$CONTROL_PID" ]; then
+        kill -TERM "$CONTROL_PID" 2>/dev/null || true
+    fi
     wait "$SC_PID" 2>/dev/null || true
     [ -n "$STARTUP_PID" ] && wait "$STARTUP_PID" 2>/dev/null
     log "Bye"

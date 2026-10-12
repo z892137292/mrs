@@ -62,8 +62,14 @@ FROM supercronic-${TARGETARCH} AS supercronic
 ###############################################################################
 # Stage: runtime
 ###############################################################################
+FROM ${NODE_IMAGE} AS admin-deps
+WORKDIR /opt/mrs-admin
+COPY admin/package.json admin/package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+
 FROM ${NODE_IMAGE} AS runtime
-ARG APP_VERSION=1.0.3-rc1
+ARG APP_VERSION=1.1.0-rc.1
+ARG APP_COMMIT=unknown
 ARG UPSTREAM_REF=d0f07d74a0ed4dda127855d6e3dde98bf4c89d6e
 
 ENV APP_DIR=/usr/src/microsoft-rewards-script \
@@ -72,9 +78,12 @@ ENV APP_DIR=/usr/src/microsoft-rewards-script \
     PLAYWRIGHT_BROWSERS_PATH=0 \
     NODE_OPTIONS=--disable-warning=ExperimentalWarning \
     PUID=1000 \
-    PGID=1000
+    PGID=1000 \
+    MRS_VERSION=${APP_VERSION} \
+    MRS_COMMIT=${APP_COMMIT}
 
 LABEL org.opencontainers.image.version="${APP_VERSION}" \
+      org.opencontainers.image.revision="${APP_COMMIT}" \
       org.opencontainers.image.title="microsoft-rewards-custom" \
       org.opencontainers.image.description="Self-maintained build of Microsoft-Rewards-Script with run lock, watchdog, bounded retries and persistent logs" \
       org.opencontainers.image.licenses="GPL-3.0-or-later" \
@@ -104,6 +113,8 @@ RUN npx patchright install --with-deps --only-shell chromium \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* /root/.npm
 
 COPY --from=supercronic /supercronic /usr/local/bin/supercronic
+COPY --from=admin-deps /opt/mrs-admin /opt/mrs-admin
+COPY admin/src /opt/mrs-admin/src
 COPY --chmod=644 docker/lib.sh                /usr/local/lib/rewards/lib.sh
 COPY --chmod=644 docker/merge-summary.jq      /usr/local/lib/rewards/merge-summary.jq
 COPY --chmod=755 docker/entrypoint.sh         /usr/local/bin/docker-entrypoint

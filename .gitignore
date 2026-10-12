@@ -7,3 +7,6 @@ diagnostics/
 node_modules/
 backups/
 restore-check/
+control-data/
+web-data/
+test-results/

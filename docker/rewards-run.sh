@@ -132,6 +132,12 @@ write_status() {
         '$ARGS.named' >"$tmp" && mv -f "$tmp" "$STATUS_FILE"
 }
 
+# Optional durable event hook; bounded and independent of core task exit status.
+emit_admin_event() {
+    [ "${CONTROL_API_ENABLED:-false}" = true ] || return 0
+    timeout 2 node /opt/mrs-admin/src/event.mjs "$1" "$RUN_ID" "${2:-}" 9>&- >/dev/null 2>&1 || true
+}
+
 run_attempt() {
     local filter="$1" timeout_s="$TIMEOUT_S" start=$SECONDS
     TIMED_OUT=0
@@ -250,6 +256,7 @@ if [ "$TRIGGER" = schedule ] && ! is_true "${SKIP_RANDOM_SLEEP:-false}"; then
 fi
 
 # ── Attempts ────────────────────────────────────────────────────────────────
+emit_admin_event task_started running
 # Keep private, cumulative summary from this one run, not the last retry only.
 printf '{"accounts":[],"attempts":0}\n' >"$SUMMARY_FILE"
 MAX_ATTEMPTS=$((MAX_RETRIES + 1))
@@ -339,6 +346,17 @@ if [ -n "$BOT_EMAILS" ]; then
 fi
 
 write_status
+emit_admin_event task_finished "$RESULT"
+if [ "$RESULT" = risk_paused ]; then
+    emit_admin_event risk_paused "$RESULT"
+    emit_admin_event account_paused "$RESULT"
+    if grep -q 'Login verification or restriction requires manual review' "$RUN_LOG"; then
+        emit_admin_event verification_required "$RESULT"
+    fi
+fi
+if [ -f "$STOP_FILE" ] && grep -q 'circuit breaker:' "$STOP_FILE"; then
+    emit_admin_event circuit_open "$RESULT"
+fi
 log "Run $RUN_ID finished: $RESULT"
 
 case "$RESULT" in
