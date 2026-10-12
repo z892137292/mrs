@@ -39,8 +39,7 @@ docker exec "$NAME" rewards-ctl selftest >"$OUT/selftest.log" 2>&1
 docker exec -u 1000:1000 -e CI=true "$NAME" bash /audit-project/tests/run-wrapper.test.sh >"$OUT/wrapper.log" 2>&1
 docker exec -u 1000:1000 "$NAME" bash /audit-project/tests/repeat-wrapper.test.sh >"$OUT/repeat.log" 2>&1
 docker exec -u 1000:1000 "$NAME" bash /audit-project/tests/backup-restore.test.sh >"$OUT/backup.log" 2>&1
-docker exec -u 1000:1000 -e SOAK_SECONDS="$SOAK_SECONDS" "$NAME" \
-    timeout "$((SOAK_SECONDS+300))" node /audit-project/tests/chromium-runtime.mjs >"$OUT/chromium-soak.json" 2>"$OUT/chromium-soak.stderr"
+
 start_browser_run() {
     docker exec -u 1000:1000 "$NAME" rm -f /usr/src/microsoft-rewards-script/state/test-ready
     docker exec -e REWARDS_RUN_CMD='node /audit-project/tests/chromium-child.mjs' \
@@ -74,4 +73,13 @@ docker stop -t 60 "$NAME" >"$OUT/docker-stop.log"
 docker logs "$NAME" >"$OUT/supervisor.log" 2>&1
 grep -q Bye "$OUT/supervisor.log"
 wait "$RUN_CLIENT" 2>/dev/null || true
+# Verify restarting the same isolated container before the sustained browser loop.
+docker start "$NAME" >"$OUT/restart.log"
+for ((i=0;i<30;i++)); do
+    if docker exec "$NAME" rewards-healthcheck; then break; fi
+    sleep 1
+done
+docker exec "$NAME" rewards-healthcheck
+docker exec -u 1000:1000 -e SOAK_SECONDS="$SOAK_SECONDS" "$NAME" \
+    timeout "$((SOAK_SECONDS+300))" node /audit-project/tests/chromium-runtime.mjs >"$OUT/chromium-soak.json" 2>"$OUT/chromium-soak.stderr"
 printf 'PASS: real amd64 image, non-root Chromium, wrapper/backup/repetition/soak, lock, stop and cleanup\n' >"$OUT/container-result.txt"
