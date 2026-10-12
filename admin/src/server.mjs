@@ -117,12 +117,13 @@ export function createWeb(env=process.env, options={}) {
         polling=true
         try{
             const s=await agent('/snapshot')
+            const events=await agent(`/events?after=${store.get('eventCursor') || 0}`)
+            // Declare recovery only after BOTH endpoints work, not before a failing event fetch.
             if(connected===false)notifications.enqueue({id:`recovered-${Date.now()}`,kind:'service_recovered',result:'任务控制连接恢复'})
             connected=true
             const healthy=s.health.schedulerProcesses>0
             if(schedulerHealthy!==healthy && schedulerHealthy!==null)notifications.enqueue({id:`scheduler-${Date.now()}`,kind:healthy?'service_recovered':'service_unavailable',result:'调度器健康状态变化'})
             schedulerHealthy=healthy
-            const events=await agent(`/events?after=${store.get('eventCursor') || 0}`)
             for(const e of events){
                 notifications.enqueue({...e,id:`agent-${e.id}`})
                 if(e.kind==='task_finished' && e.result==='failed')notifications.enqueue({...e,id:`agent-${e.id}-failed`,kind:'task_failed'})

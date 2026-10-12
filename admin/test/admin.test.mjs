@@ -145,3 +145,16 @@ test('agent journal storage failure cannot fail a successful core pause operatio
         assert.equal(fs.readFileSync(f.env.FAKE_CALLS,'utf8'),'')
     }finally{await f.cleanup()}
 })
+test('a broken event endpoint cannot alternate recovered/unavailable notifications forever',async()=>{
+    const f=await fixture()
+    try{
+        f.agent.journal.db.exec('DROP TABLE events')
+        await f.web.poll();await f.web.poll();await f.web.poll()
+        assert.equal(f.web.store.db.prepare("SELECT count(*) AS n FROM events WHERE kind='service_unavailable'").get().n,1)
+        assert.equal(f.web.store.db.prepare("SELECT count(*) AS n FROM events WHERE kind='service_recovered'").get().n,0)
+        f.agent.journal.db.exec('CREATE TABLE events(id INTEGER PRIMARY KEY AUTOINCREMENT,time TEXT,kind TEXT,v TEXT)')
+        await f.web.poll();await f.web.poll()
+        assert.equal(f.web.store.db.prepare("SELECT count(*) AS n FROM events WHERE kind='service_recovered'").get().n,1)
+        assert.equal(fs.readFileSync(f.env.FAKE_CALLS,'utf8'),'')
+    }finally{await f.cleanup()}
+})
