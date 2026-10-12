@@ -1,7 +1,5 @@
 name: Candidate build and gated release
 on:
-  push:
-    branches: [main]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -54,6 +52,7 @@ jobs:
         run: |
           . ./upstream.env
           echo "ref=$UPSTREAM_REF" >> "$GITHUB_OUTPUT"
+          echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
       - name: Validate gates
         env:
           SOAK: ${{ inputs.soak_seconds || '3600' }}
@@ -76,7 +75,7 @@ jobs:
           tags: mrs-custom:ci
           build-args: |
             UPSTREAM_REF=${{ steps.source.outputs.ref }}
-            APP_VERSION=${{ inputs.release_tag || '1.0.3-rc1' }}
+            APP_VERSION=${{ inputs.release_tag || steps.source.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Real offline container tests
@@ -86,8 +85,9 @@ jobs:
       - name: Export tested image
         run: |
           test "$(docker image inspect --format '{{.Id}}' mrs-custom:ci)" = "$(cat test-results/tested-image-id.txt)"
+          git rev-parse 'HEAD^{tree}' > test-results/tested-source-tree.txt
           docker save mrs-custom:ci | gzip > test-results/mrs-custom-amd64.tar.gz
-          sha256sum test-results/mrs-custom-amd64.tar.gz > test-results/mrs-custom-amd64.tar.gz.sha256
+          (cd test-results && sha256sum mrs-custom-amd64.tar.gz > mrs-custom-amd64.tar.gz.sha256)
       - name: Save build and test records
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
