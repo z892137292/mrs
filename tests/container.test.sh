@@ -28,7 +28,7 @@ printf 'IMAGE=%s\nACCOUNT_1_EMAIL=ci@example.invalid\nRUN_ON_START=false\n' "$IM
 docker compose -f "$WORK/compose/compose.yaml" --project-directory "$WORK/compose" -p "$NAME" config >"$OUT/compose-config.txt"
 docker run -d --name "$NAME" --network none --shm-size=1g \
     --security-opt no-new-privileges:true --cap-drop ALL \
-    --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER --cap-add SETUID --cap-add SETGID \
+    --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER --cap-add SETUID --cap-add SETGID --cap-add KILL \
     -e RUN_ON_START=false -e CRON_SCHEDULE='0 0 1 1 *' \
     -e ACCOUNT_1_EMAIL=ci@example.invalid -e STOP_GRACE_SECONDS=2 \
     -v "$ROOT:/audit-project:ro" "$IMAGE" >"$OUT/container-id.txt"

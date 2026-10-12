@@ -114,7 +114,8 @@ COPY --chmod=755 docker/rewards-selftest.sh   /usr/local/bin/rewards-selftest
 COPY --chmod=755 docker/healthcheck.sh        /usr/local/bin/rewards-healthcheck
 
 # The app reads ./config.json; the real file lives in the persisted config/ volume.
-RUN ln -s config/config.json config.json \
+RUN chmod 755 /usr/local/lib/rewards \
+    && ln -s config/config.json config.json \
     && mkdir -p config sessions state logs diagnostics \
     && chown -R "${PUID}:${PGID}" config sessions state logs diagnostics
 
