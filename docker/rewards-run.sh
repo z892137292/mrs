@@ -95,6 +95,7 @@ terminate_group() {
     kill -KILL -- "-$pg" 2>/dev/null || true
 }
 
+# shellcheck disable=SC2317  # ShellCheck 0.9 does not recognize trap-only invocation
 on_signal() {
     [ "$STOPPING" = 1 ] && return
     STOPPING=1
@@ -104,6 +105,7 @@ on_signal() {
 trap 'on_signal TERM' TERM
 trap 'on_signal INT' INT
 
+# shellcheck disable=SC2317  # ShellCheck 0.9 does not recognize trap-only invocation
 on_exit() {
     rm -f "$RUN_PID_FILE" "$ATTEMPT_SUMMARY_FILE" "$RISK_FILE"
     exec 1>&- 2>&-

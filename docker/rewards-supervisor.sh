@@ -35,6 +35,7 @@ stop_active_run() {
     while kill -0 "$pid" 2>/dev/null && ((SECONDS < deadline)); do sleep 1; done
 }
 
+# shellcheck disable=SC2317  # ShellCheck 0.9 does not recognize trap-only invocation
 shutdown() {
     trap '' TERM INT
     log "Shutdown requested"

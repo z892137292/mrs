@@ -7,7 +7,10 @@ umask 077
 ARCHIVE="$1"
 DEST="$2"
 [ -f "$ARCHIVE" ] || { echo "Archive not found: $ARCHIVE" >&2; exit 1; }
-[ ! -e "$DEST" ] && [ ! -L "$DEST" ] || { echo 'Destination exists; never restore over existing/live data.' >&2; exit 1; }
+if [ -e "$DEST" ] || [ -L "$DEST" ]; then
+    echo 'Destination exists; never restore over existing/live data.' >&2
+    exit 1
+fi
 for tool in tar sha256sum mktemp; do command -v "$tool" >/dev/null || { echo "Missing command: $tool" >&2; exit 1; }; done
 if [ -f "$ARCHIVE.sha256" ]; then
     expected="$(head -n 1 "$ARCHIVE.sha256" | tr -d '[:space:]')"
