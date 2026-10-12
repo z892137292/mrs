@@ -1,8 +1,11 @@
 // Real Chromium, real Web/agent containers, synthetic offline data only.
 import { createRequire } from 'node:module'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 const require=createRequire(`${process.env.APP_DIR}/package.json`),{chromium}=require('patchright')
 assert.notEqual(process.getuid(),0)
+const logName='run-20261013-090000-123.log'
+fs.writeFileSync(`${process.env.APP_DIR}/logs/${logName}`, '<img src=x onerror="window.__xss=1">\nCookie: A=NEVER_EXPOSE_COOKIE; B=NEVER_EXPOSE_SECOND\n')
 const browser=await chromium.launch({headless:true})
 try{
     const page=await browser.newPage()
@@ -31,6 +34,10 @@ try{
     assert.equal(pausedRun,409)
     const resume=await page.evaluate(async()=>{const s=await(await fetch('/api/session')).json();return(await fetch('/api/control',{method:'POST',headers:{'content-type':'application/json','x-csrf-token':s.csrf},body:JSON.stringify({action:'resume'})})).status})
     assert.equal(resume,200)
+    await page.locator('[data-page="logs"]').click()
+    await page.waitForFunction(()=>document.querySelector('#log-output').textContent.includes('<img'))
+    assert.equal(await page.evaluate(()=>window.__xss),undefined)
+    assert.ok(!(await page.locator('#log-output').textContent()).includes('NEVER_EXPOSE'))
     await page.locator('[data-page="notifications"]').click()
     await page.locator('#notification-form').waitFor({state:'visible'})
     await page.locator('#test-notification').click()

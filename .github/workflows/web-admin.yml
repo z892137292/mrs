@@ -115,6 +115,8 @@ jobs:
           test -s test-results/web/result.txt
           owner="${GITHUB_REPOSITORY_OWNER,,}"
           version="$(cat VERSION)"
+          docker buildx imagetools inspect "ghcr.io/$owner/microsoft-rewards-custom:1.0.3" > test-results/stable-image-state.txt
+          grep -Eq '^Digest:[[:space:]]+sha256:8245f6737d68c4e09a84b7988ecee343a038a101e108fb9d34ee4f5f49b34089' test-results/stable-image-state.txt
           targets=("ghcr.io/$owner/microsoft-rewards-custom:$version" "ghcr.io/$owner/microsoft-rewards-web-admin:$version")
           # Validate BOTH target tags before any push. Unknown authorization/registry errors refuse publication.
           for target in "${targets[@]}"; do
@@ -140,4 +142,5 @@ jobs:
           path: |
             test-results/*-digest.json
             test-results/*-publish.log
+            test-results/stable-image-state.txt
           if-no-files-found: warn
