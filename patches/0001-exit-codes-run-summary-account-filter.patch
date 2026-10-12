@@ -1,0 +1,292 @@
+diff --git a/src/index.ts b/src/index.ts
+index ae19c49..9a5d07f 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -16,6 +16,7 @@ import Utils, { isBrowserClosedError } from './util/Utils'
+ import { loadAccounts, loadConfig } from './util/Load'
+ import { closeSessionStore, loadResolvedRegion, saveResolvedRegion } from './util/SessionStore'
+ import { checkNodeVersion } from './util/Validator'
++import { BOT_WARNING_ERROR, EXIT_FATAL, EXIT_OK, finalizeRun, markRiskPause } from './util/RunSummary'
+ import { normalizeCountry, resolveAccountLocale } from './util/Locale'
+ import type { AccountLocale } from './util/Locale'
+ 
+@@ -231,6 +232,12 @@ export class MicrosoftRewardsBot {
+     }
+ 
+     async initialize(): Promise<void> {
++        if (process.env.REWARDS_BOT === '1') {
++            // Container has no display server; serialize accounts for fail-closed risk handling.
++            this.config.headless = true
++            this.config.clusters = 1
++            this.config.contintueOnBotWarning = false
++        }
+         this.accounts = loadAccounts()
+         this.warnExperimental()
+     }
+@@ -358,9 +365,15 @@ export class MicrosoftRewardsBot {
+                     'green'
+                 )
+ 
++                // [custom] accounts of a crashed worker have no stats and are reported as failed
++                const exitCode = finalizeRun(
++                    this.accounts.map(a => a.email),
++                    allAccountStats,
++                    pkg.version
++                )
+                 await flushAllWebhooks()
+ 
+-                process.exit(hadWorkerFailure ? 1 : 0)
++                process.exit(hadWorkerFailure && exitCode === EXIT_OK ? EXIT_FATAL : exitCode)
+             }
+         }
+ 
+@@ -462,7 +475,7 @@ export class MicrosoftRewardsBot {
+                             collectedPoints: 0,
+                             duration: parseFloat(durationSeconds),
+                             success: false,
+-                            error: 'Microsoft bot-score warning detected'
++                            error: BOT_WARNING_ERROR
+                         })
+ 
+                         this.logger.warn(
+@@ -470,6 +483,14 @@ export class MicrosoftRewardsBot {
+                             'ACCOUNT-SKIP',
+                             `Skipped account: ${accountEmail} | reason=Fraud_UserWarning_BotScore_UX | durationSeconds=${durationSeconds}`
+                         )
++                        if (process.env.REWARDS_BOT === '1') {
++                            finalizeRun(
++                                accounts.map(a => a.email),
++                                accountStats,
++                                pkg.version
++                            )
++                            process.exit(78)
++                        }
+                     } else {
+                         accountStats.push({
+                             email: accountEmail,
+@@ -531,8 +552,14 @@ export class MicrosoftRewardsBot {
+                 'green'
+             )
+ 
++            // [custom] exit 2 when any account failed so the wrapper can retry just those
++            const exitCode = finalizeRun(
++                accounts.map(a => a.email),
++                accountStats,
++                pkg.version
++            )
+             await flushAllWebhooks()
+-            process.exit(0)
++            process.exit(exitCode)
+         }
+ 
+         return accountStats
+@@ -663,6 +690,7 @@ export class MicrosoftRewardsBot {
+                     data.dashboard.userWarnings.some(warning => warning?.name === 'Fraud_UserWarning_BotScore_UX')
+ 
+                 if (hasBotScoreWarning) {
++                    if (process.env.REWARDS_BOT === '1') markRiskPause()
+                     const availablePoints = data.dashboard.userStatus.availablePoints ?? 0
+ 
+                     if (!this.config.contintueOnBotWarning) {
+diff --git a/src/logging/Logger.ts b/src/logging/Logger.ts
+index 93900e1..59be65f 100644
+--- a/src/logging/Logger.ts
++++ b/src/logging/Logger.ts
+@@ -5,6 +5,7 @@ import { sendNtfy } from './Ntfy'
+ import { sendTelegram } from './Telegram'
+ import type { MicrosoftRewardsBot } from '../index'
+ import { errorDiagnostic } from '../util/ErrorDiagnostic'
++import { redactSensitiveText } from '../util/RunSummary'
+ import type { LogFilter } from '../interface/Config'
+ 
+ export type Platform = boolean | 'main'
+@@ -84,7 +85,7 @@ export class Logger {
+         if (level === 'debug' && !config.debugLogs && !process.argv.includes('-dev')) return
+ 
+         const now = new Date().toLocaleString()
+-        const formatted = formatMessage(message)
++        const formatted = redactSensitiveText(formatMessage(message))
+         const userName = this.bot.userData.userName || 'MAIN'
+         const levelTag = level.toUpperCase()
+         const cleanMsg = `[${now}] [${userName}] [${levelTag}] ${platformText(isMobile)} [${title}] ${formatted}`
+diff --git a/src/util/Http.ts b/src/util/Http.ts
+index 4988e28..9943c28 100644
+--- a/src/util/Http.ts
++++ b/src/util/Http.ts
+@@ -2,6 +2,7 @@ import { Impit } from 'impit'
+ import type { HttpMethod, ImpitResponse, RequestInit as ImpitRequestInit } from 'impit'
+ import type { AccountProxy } from '../interface/Account'
+ import { parseBrowserProxyUrl } from './Proxy'
++import { markRiskPause } from './RunSummary'
+ 
+ const DEFAULT_TIMEOUT = 20000
+ const MAX_RETRIES = 3
+@@ -150,6 +151,10 @@ async function send<T>(
+             throw error
+         } catch (error) {
+             const status = (error as { status?: number })?.status ?? responseStatus
++            if (process.env.REWARDS_BOT === '1' && (status === 403 || status === 429)) {
++                markRiskPause()
++                throw error
++            }
+             const permanentClientError =
+                 typeof status === 'number' &&
+                 status >= 400 &&
+diff --git a/src/util/Load.ts b/src/util/Load.ts
+index 71b4400..d3e85cc 100644
+--- a/src/util/Load.ts
++++ b/src/util/Load.ts
+@@ -119,6 +119,25 @@ function getAccountIndexes(): string[] {
+         .sort((a, b) => Number(a) - Number(b))
+ }
+ 
++// [custom] RUN_ACCOUNT_FILTER: comma-separated e-mails; when set only these accounts run.
++// Used by the Docker wrapper to retry just the accounts that failed.
++export function applyAccountFilter(accounts: Account[]): Account[] {
++    const raw = envStr('RUN_ACCOUNT_FILTER')
++    if (!raw) return accounts
++
++    const wanted = new Set(
++        raw
++            .split(',')
++            .map(e => e.trim().toLowerCase())
++            .filter(Boolean)
++    )
++    const selected = accounts.filter(a => wanted.has(a.email.toLowerCase()))
++    if (!selected.length || new Set(selected.map(a => a.email.toLowerCase())).size !== wanted.size) {
++        throw new Error('RUN_ACCOUNT_FILTER matched no configured account or contains unknown accounts.')
++    }
++    return selected
++}
++
+ export function loadAccounts(): Account[] {
+     try {
+         ensureEnvLoaded()
+@@ -147,7 +166,7 @@ export function loadAccounts(): Account[] {
+             throw new Error('No accounts found in environment. Set at least one ACCOUNT_N_EMAIL (see env.example).')
+         }
+ 
+-        return validateAccounts(accounts)
++        return validateAccounts(applyAccountFilter(accounts))
+     } catch (error) {
+         if (error instanceof Error) throw error
+         throw new Error(String(error))
+diff --git a/src/util/RunSummary.ts b/src/util/RunSummary.ts
+new file mode 100644
+index 0000000..a935d07
+--- /dev/null
++++ b/src/util/RunSummary.ts
+@@ -0,0 +1,113 @@
++// [custom] Run summary + exit codes consumed by the Docker run wrapper (rewards-run).
++import fs from 'node:fs'
++import path from 'node:path'
++
++export const EXIT_OK = 0
++export const EXIT_FATAL = 1
++export const EXIT_ACCOUNT_FAILED = 2
++
++export const BOT_WARNING_ERROR = 'Microsoft bot-score warning detected'
++
++export interface AccountResult {
++    email: string
++    success: boolean
++    collectedPoints: number
++    error?: string
++}
++
++export type AccountStatus = 'ok' | 'failed' | 'skipped_bot_warning'
++
++export interface RunSummary {
++    finishedAt: string
++    version: string
++    exitCode: number
++    failedEmails: string[]
++    botWarningEmails: string[]
++    totalCollectedPoints: number
++    accounts: { email: string; status: AccountStatus; error?: string; collectedPoints: number }[]
++}
++
++/**
++ * Builds the summary for every configured account. Accounts without a result
++ * (e.g. their cluster worker crashed) are reported as failed so they get retried.
++ * Bot-score skips are not failures: retrying them would be counter-productive.
++ */
++export function buildRunSummary(allEmails: string[], results: AccountResult[], version: string): RunSummary {
++    const byEmail = new Map(results.map(r => [r.email.toLowerCase(), r]))
++    const accounts = allEmails.map(email => {
++        const r = byEmail.get(email.toLowerCase())
++        if (!r) return { email, status: 'failed' as const, error: 'No result reported', collectedPoints: 0 }
++        const status: AccountStatus = r.success
++            ? 'ok'
++            : r.error === BOT_WARNING_ERROR
++              ? 'skipped_bot_warning'
++              : 'failed'
++        return {
++            email,
++            status,
++            error: r.error ? redactSensitiveText(r.error) : undefined,
++            collectedPoints: r.collectedPoints ?? 0
++        }
++    })
++    const failedEmails = accounts.filter(a => a.status === 'failed').map(a => a.email)
++
++    return {
++        finishedAt: new Date().toISOString(),
++        version,
++        exitCode: failedEmails.length ? EXIT_ACCOUNT_FAILED : EXIT_OK,
++        failedEmails,
++        botWarningEmails: accounts.filter(a => a.status === 'skipped_bot_warning').map(a => a.email),
++        totalCollectedPoints: accounts.reduce((sum, a) => sum + a.collectedPoints, 0),
++        accounts
++    }
++}
++
++/** Writes the summary atomically (mode 0600) when RUN_SUMMARY_FILE is set. Never throws. */
++export function writeRunSummary(summary: RunSummary, target = process.env.RUN_SUMMARY_FILE?.trim()): void {
++    if (!target) return
++    try {
++        fs.mkdirSync(path.dirname(target), { recursive: true })
++        const tmp = `${target}.${process.pid}.tmp`
++        fs.writeFileSync(tmp, JSON.stringify(summary, null, 2), { mode: 0o600 })
++        fs.renameSync(tmp, target)
++    } catch (error) {
++        console.error(`[custom] Unable to write run summary: ${error instanceof Error ? error.message : String(error)}`)
++    }
++}
++
++/** Builds + writes the summary and returns the process exit code to use. */
++export function finalizeRun(allEmails: string[], results: AccountResult[], version: string): number {
++    const summary = buildRunSummary(allEmails, results, version)
++    writeRunSummary(summary)
++    return summary.exitCode
++}
++
++/** Persist a risk stop before browser cleanup or webhook processing can block. */
++export function markRiskPause(target = process.env.RUN_RISK_FILE): void {
++    try {
++        if (!target) throw new Error('Missing risk marker path')
++        fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 })
++        fs.writeFileSync(target, 'Microsoft risk warning detected\n', { mode: 0o600 })
++        fs.writeFileSync(path.join(path.dirname(target), 'STOP'), 'Microsoft risk warning; manual review required\n', {
++            mode: 0o600
++        })
++    } catch {
++        // Never turn a failed risk-stop write into a retryable account error.
++        console.error('[custom] Risk protection could not persist its marker; stopping immediately')
++        process.exit(78)
++    }
++}
++
++/** Scrub common credential formats before console/webhook dispatch or summary persistence. */
++export function redactSensitiveText(text: string): string {
++    return text
++        .replace(/((?:https?|socks[45]):\/\/)[^/@\s]+:[^/@\s]+@/gi, '$1[REDACTED]@')
++        .replace(/(https:\/\/api\.telegram\.org\/bot)[^/\s]+/gi, '$1[REDACTED]')
++        .replace(/(authorization\s*:\s*bearer\s+)[^\s";]+/gi, '$1[REDACTED]')
++        .replace(/((?:set-cookie|cookie)\s*:)\s*[^\r\n]*/gi, '$1 [REDACTED]')
++        .replace(
++            /(["']?(?:password|passwd|totp[_]?secret|access[_]?token|refresh[_]?token|api[_]?key|client[_]?secret|proxy[_]?password|sessionid|botToken)["']?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;}]+)/gi,
++            '$1[REDACTED]'
++        )
++        .replace(/((?:token|secret|code|password|api_key)=)[^&\s";]+/gi, '$1[REDACTED]')
++}

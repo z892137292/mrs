@@ -1,0 +1,100 @@
+diff --git a/src/browser/auth/Login.ts b/src/browser/auth/Login.ts
+--- a/src/browser/auth/Login.ts
++++ b/src/browser/auth/Login.ts
+@@ -12,6 +12,7 @@
+ import { CodeLogin } from './methods/GetACodeLogin'
+ import { RecoveryLogin } from './methods/RecoveryEmailLogin'
+ import { canPromptForInput } from './methods/LoginUtils'
++import { enforceLoginSafety } from '../../util/LoginSafety'
+ 
+ import type { Account } from '../../interface/Account'
+ 
+@@ -105,7 +106,7 @@
+                 .catch(() => {})
+             await this.bot.utils.wait(2000)
+             await this.bot.browser.utils.reloadBadPage(page)
+-            await this.bot.browser.utils.disableFido(page)
++            if (process.env.REWARDS_BOT !== '1') await this.bot.browser.utils.disableFido(page)
+ 
+             const maxIterations = 25
+             let iteration = 0
+@@ -193,6 +194,25 @@
+         if (isLocked) {
+             this.bot.logger.debug(this.bot.isMobile, 'DETECT-STATE', 'Account locked selector found')
+             return 'ACCOUNT_LOCKED'
++        }
++
++        if (process.env.REWARDS_BOT === '1') {
++            // Check visible verification/restriction elements before domain-based login shortcuts.
++            const reviewChecks: Array<[string, string]> = [
++                [this.selectors.errorAlert, 'ERROR_ALERT'],
++                [this.selectors.emailVerificationInput, 'EMAIL_VERIFICATION_INPUT'],
++                [this.selectors.recoveryEmail, 'RECOVERY_EMAIL_INPUT'],
++                [this.selectors.totpInput, '2FA_TOTP'],
++                [this.selectors.totpInputOld, '2FA_TOTP'],
++                [this.selectors.otpCodeEntry, 'OTP_CODE_ENTRY'],
++                [this.selectors.otpInput, 'OTP_CODE_ENTRY'],
++                [this.selectors.passwordlessCheck, 'LOGIN_PASSWORDLESS'],
++                [this.selectors.passwordlessNumber, 'LOGIN_PASSWORDLESS'],
++                ['iframe[src*="captcha"], input[name*="captcha" i], [data-testid="captcha"], #captcha', 'CAPTCHA']
++            ]
++            for (const [selector, state] of reviewChecks) {
++                if (await this.checkSelector(page, selector)) enforceLoginSafety(state)
++            }
+         }
+ 
+         if (hostname === 'bing.com' || hostname.endsWith('.bing.com') || hostname === 'account.microsoft.com') {
+@@ -457,6 +477,7 @@
+     }
+ 
+     private async handleState(state: LoginState, page: Page, account: Account): Promise<boolean> {
++        enforceLoginSafety(state)
+         this.bot.logger.debug(this.bot.isMobile, 'HANDLE-STATE', `Processing state: ${state}`)
+ 
+         switch (state) {
+diff --git a/src/util/LoginSafety.ts b/src/util/LoginSafety.ts
+new file mode 100644
+--- /dev/null
++++ b/src/util/LoginSafety.ts
+@@ -0,0 +1,29 @@
++import { markRiskPause } from './RunSummary'
++
++const manualReviewStates = new Set([
++    'ACCOUNT_LOCKED',
++    'ERROR_ALERT',
++    'EMAIL_VERIFICATION_INPUT',
++    'RECOVERY_EMAIL_INPUT',
++    '2FA_TOTP',
++    'LOGIN_PASSWORDLESS',
++    'PASSWORDLESS_SEND_CODE',
++    'OTP_CODE_ENTRY',
++    'PASSKEY_VIDEO',
++    'PASSKEY_ERROR',
++    'SIGN_IN_METHOD_PICKER',
++    'FOOTER_ACTION',
++    'CAPTCHA'
++])
++
++export function requiresManualLoginReview(state: string): boolean {
++    return manualReviewStates.has(state)
++}
++
++export function enforceLoginSafety(state: string): void {
++    if (process.env.REWARDS_BOT !== '1' || !requiresManualLoginReview(state)) return
++    markRiskPause()
++    console.error('[custom] Login verification or restriction requires manual review; automation paused')
++    // Exit before upstream account-error handlers can continue with another account.
++    process.exit(78)
++}
+diff --git a/src/util/Http.ts b/src/util/Http.ts
+--- a/src/util/Http.ts
++++ b/src/util/Http.ts
+@@ -153,7 +153,7 @@
+             const status = (error as { status?: number })?.status ?? responseStatus
+             if (process.env.REWARDS_BOT === '1' && (status === 403 || status === 429)) {
+                 markRiskPause()
+-                throw error
++                process.exit(78)
+             }
+             const permanentClientError =
+                 typeof status === 'number' &&

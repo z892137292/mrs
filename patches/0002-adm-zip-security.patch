@@ -1,0 +1,30 @@
+diff --git a/package-lock.json b/package-lock.json
+index 46a74a1..542c0d2 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -662,9 +662,9 @@
+             }
+         },
+         "node_modules/adm-zip": {
+-            "version": "0.6.0",
+-            "resolved": "https://registry.npmjs.org/adm-zip/-/adm-zip-0.6.0.tgz",
+-            "integrity": "sha512-XleryMhbuksdKtofnWZ9Sk+4CUTbms4Mb/EU32SZwToAyZ5RgVos/ki8n+yr0LWHOGKuakbXTuuYNHLQjhddgg==",
++            "version": "0.6.1",
++            "resolved": "https://registry.npmjs.org/adm-zip/-/adm-zip-0.6.1.tgz",
++            "integrity": "sha512-Xwrja8nx9e5o2N1my4DsKCeKpdrnACyr1wtbPxBDgGzKzKyE9kRtBFA8mWldI+RVlD7CBZNWY/wQ2+ydwOR6kQ==",
+             "license": "MIT",
+             "engines": {
+                 "node": ">=14.0"
+diff --git a/package.json b/package.json
+index 9e736bc..691e597 100644
+--- a/package.json
++++ b/package.json
+@@ -62,5 +62,8 @@
+         "semver": "^7.8.1",
+         "ts-node": "^10.9.2",
+         "zod": "^4.4.3"
++    },
++    "overrides": {
++        "adm-zip": "0.6.1"
+     }
+ }

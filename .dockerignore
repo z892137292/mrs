@@ -1,0 +1,6 @@
+*
+!Dockerfile
+!patches/
+!docker/
+backups
+restore-check

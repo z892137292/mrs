@@ -1,0 +1,9 @@
+.env
+config/
+sessions/
+state/
+logs/
+diagnostics/
+node_modules/
+backups/
+restore-check/

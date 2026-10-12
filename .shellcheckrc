@@ -1,0 +1,4 @@
+# SC2329: functions invoked only via `trap` are reported as unused
+# SC2016: single-quoted snippets are intentionally expanded by the child shell
+disable=SC2329,SC2016
+external-sources=true

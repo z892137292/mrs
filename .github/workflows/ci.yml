@@ -1,0 +1,117 @@
+name: Candidate build and gated release
+on:
+  push:
+    branches: [main, 'candidate/**']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      publish:
+        type: boolean
+        default: false
+        description: Publish the exact tested image after all gates pass
+      soak_seconds:
+        type: string
+        default: '3600'
+        description: Offline Chromium soak duration; release requires at least 3600 seconds
+      release_tag:
+        type: string
+        default: ''
+        description: Explicit version required for publication
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - run: shellcheck -x -P SCRIPTDIR/.. docker/*.sh tests/*.sh scripts/*.sh
+      - run: docker run --rm -i hadolint/hadolint:v2.14.0 < Dockerfile
+      - run: bash tests/run-wrapper.test.sh
+      - run: bash tests/repeat-wrapper.test.sh
+      - run: bash tests/backup-restore.test.sh
+  patch:
+    runs-on: ubuntu-24.04
+    container: node:24-bookworm-slim
+    steps:
+      - run: apt-get update && apt-get install -y --no-install-recommends git ca-certificates
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - run: bash tests/patch-check.sh
+  image:
+    needs: [lint, patch]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
+      - name: Resolve source
+        id: source
+        run: |
+          . ./upstream.env
+          echo "ref=$UPSTREAM_REF" >> "$GITHUB_OUTPUT"
+      - name: Validate gates
+        env:
+          SOAK: ${{ inputs.soak_seconds || '3600' }}
+          PUBLISH: ${{ inputs.publish || 'false' }}
+          TAG: ${{ inputs.release_tag }}
+        run: |
+          [[ "$SOAK" =~ ^[0-9]+$ ]] && ((SOAK >= 60 && SOAK <= 7200))
+          if [ "$PUBLISH" = true ]; then
+            ((SOAK >= 3600))
+            [[ "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+            [ "$GITHUB_REF" = refs/heads/main ]
+          fi
+      - name: Build amd64 once
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: mrs-custom:ci
+          build-args: |
+            UPSTREAM_REF=${{ steps.source.outputs.ref }}
+            APP_VERSION=${{ inputs.release_tag || '1.0.3-rc1' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Real offline container tests
+        env:
+          SOAK_SECONDS: ${{ inputs.soak_seconds || '3600' }}
+        run: bash tests/container.test.sh mrs-custom:ci test-results
+      - name: Export tested image
+        run: |
+          test "$(docker image inspect --format '{{.Id}}' mrs-custom:ci)" = "$(cat test-results/tested-image-id.txt)"
+          docker save mrs-custom:ci | gzip > test-results/mrs-custom-amd64.tar.gz
+          sha256sum test-results/mrs-custom-amd64.tar.gz > test-results/mrs-custom-amd64.tar.gz.sha256
+      - name: Save build and test records
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: amd64-image-and-test-records
+          path: test-results/
+          if-no-files-found: warn
+          retention-days: 14
+      - name: GHCR login after all tests
+        if: github.event_name == 'workflow_dispatch' && inputs.publish == true
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish without rebuilding
+        if: github.event_name == 'workflow_dispatch' && inputs.publish == true
+        env:
+          TAG: ${{ inputs.release_tag }}
+        run: |
+          test -s test-results/container-result.txt
+          test "$(docker image inspect --format '{{.Id}}' mrs-custom:ci)" = "$(cat test-results/tested-image-id.txt)"
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/microsoft-rewards-custom:$TAG"
+          if docker manifest inspect "$image" >/dev/null 2>&1; then echo "Release tag already exists; refusing overwrite" >&2; exit 1; fi
+          docker tag mrs-custom:ci "$image"
+          docker push "$image" | tee test-results/publish.log
+          echo "Published $image" >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,44 @@
+# Microsoft Rewards Custom
+#   first start:  cp .env.example .env && chmod 600 .env && edit .env
+#                 docker compose up -d --build && docker compose logs -f
+#   operate:      docker compose exec rewards rewards-ctl status|run|stop|pause|resume|logs
+services:
+    rewards:
+        image: ${IMAGE:-mrs-custom:1.0.3-rc1}
+        # Build locally instead of pulling:  docker compose build
+        build:
+            context: .
+        container_name: microsoft-rewards-custom
+        platform: linux/amd64
+        restart: unless-stopped
+        env_file:
+            - .env
+        volumes:
+            # Same container paths as upstream, so existing ./config and ./sessions can be reused.
+            - ./config:/usr/src/microsoft-rewards-script/config
+            - ./sessions:/usr/src/microsoft-rewards-script/sessions
+            - ./state:/usr/src/microsoft-rewards-script/state
+            - ./logs:/usr/src/microsoft-rewards-script/logs
+            - ./diagnostics:/usr/src/microsoft-rewards-script/diagnostics
+        # Chromium needs more than Docker's default 64 MB /dev/shm.
+        shm_size: 1gb
+        # Lets rewards-run stop the bot and Chromium cleanly (STOP_GRACE_SECONDS + margin).
+        stop_grace_period: 60s
+        security_opt:
+            - no-new-privileges:true
+        # Only what the entrypoint needs to fix volume ownership and drop to PUID:PGID.
+        cap_drop:
+            - ALL
+        cap_add:
+            - CHOWN
+            - DAC_OVERRIDE
+            - FOWNER
+            - SETUID
+            - SETGID
+        logging:
+            driver: json-file
+            options:
+                max-size: 10m
+                max-file: '3'
+        # Optional resource ceiling:
+        #mem_limit: 2g
