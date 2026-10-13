@@ -28,7 +28,7 @@ export function createWeb(env=process.env, options={}) {
     if(env.WEB_TRUST_PROXY==='true')app.set('trust proxy',1)
     app.use(helmet({contentSecurityPolicy:{directives:{defaultSrc:["'self'"],scriptSrc:["'self'"],styleSrc:["'self'"],connectSrc:["'self'"],imgSrc:["'self'"],objectSrc:["'none'"],frameAncestors:["'none'"],upgradeInsecureRequests:secure?[]:null}},strictTransportSecurity:secure?undefined:false}))
     app.use(express.json({limit:'16kb'}))
-    app.get('/healthz',(_req,res)=>res.json({healthy:true,uid:process.getuid(),version:env.MRS_VERSION || '1.1.0-rc.2'}))
+    app.get('/healthz',(_req,res)=>res.json({healthy:true,uid:process.getuid(),version:env.MRS_VERSION || '1.1.0-rc.3'}))
     app.use(session({name:'mrs.sid',secret:store.get('sessionSecret'),resave:false,saveUninitialized:false,store:new SqliteSessionStore(store),cookie:{httpOnly:true,sameSite:'strict',secure,maxAge:8*3600000}}))
     app.use('/api',(_req,res,next)=>{res.set('Cache-Control','no-store');next()})
     app.get('/api/session',(req,res)=>{
