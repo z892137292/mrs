@@ -4,7 +4,7 @@ import path from 'node:path'
 import { spawn, execFileSync } from 'node:child_process'
 import { CronExpressionParser } from 'cron-parser'
 import { Journal } from './journal.mjs'
-import { equal, redact, httpError } from './security.mjs'
+import { equal, redact, maskEmail, httpError } from './security.mjs'
 import { runtimeReadiness, isUsableEmail } from './readiness.mjs'
 import { Accounts } from './accounts.mjs'
 import { fileURLToPath } from 'node:url'
@@ -47,7 +47,7 @@ export function createAgent(env = process.env) {
             const email = String(a.email || '').trim(), same=applied.revision===configuration.revision && applied.accounts?.some(x=>x.id===a.id && x.modifiedAt===a.modifiedAt)
             const r = (!configuration.revision || same) ? (Array.isArray(summary.accounts) ? summary.accounts : []).find(x => String(x.email).toLowerCase() === email.toLowerCase()) : null
             const login=same ? applied.login?.[a.id] : null
-            return { id:a.id, label:redact(email), enabled:a.enabled, configured:isUsableEmail(email), placeholder:!isUsableEmail(email), passwordConfigured:!!a.password, proxyConfigured:!!a.proxyUrl, configurationState:!configuration.revision?'environment':same?'loaded':'saved_pending_run', configurationRevision:configuration.revision, loginState:login?.status || 'unverified', loginEvidence:login || null, result:r?.status || null, reportedPoints:number(r?.collectedPoints), pointsSource:'上游 last-summary.json 的 collectedPoints；并非已核验余额', exception:r?.error?redact(r.error):null, pauseReason:stop?redact(stop):null }
+            return { id:a.id, label:maskEmail(email), enabled:a.enabled, configured:isUsableEmail(email), placeholder:!isUsableEmail(email), passwordConfigured:!!a.password, proxyConfigured:!!a.proxyUrl, configurationState:!configuration.revision?'environment':same?'loaded':'saved_pending_run', configurationRevision:configuration.revision, loginState:login?.status || 'unverified', loginEvidence:login || null, result:r?.status || null, reportedPoints:number(r?.collectedPoints), pointsSource:'上游 last-summary.json 的 collectedPoints；并非已核验余额', exception:r?.error?redact(r.error):null, pauseReason:stop?redact(stop):null }
         })
         let runLog = ''
         try { runLog = fs.readdirSync(logs).filter(n => /^run-\d{8}-\d{6}-\d+\.log$/.test(n)).sort().at(-1) || '' } catch {}

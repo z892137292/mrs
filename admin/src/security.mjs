@@ -12,9 +12,10 @@ export function redact(value) {
         .replace(/((?:https?|socks[45]):\/\/)[^\s/@]+:[^\s/@]+@/gi, '$1[已隐藏]@')
         .replace(/(api\.telegram\.org\/bot)[^/\s]+/gi, '$1[已隐藏]')
         .replace(/("?(?:password|passwd|cookie|session(?:id)?|totp[_-]?secret|access[_-]?token|refresh[_-]?token|token|secret|api[_-]?key|client[_-]?secret|proxy[_-]?password)"?\s*[:=]\s*)("[^"]*"|[^\s,;&}]+)/gi, '$1[已隐藏]')
-        .replace(/([\w.%+-])[\w.%+-]*@([\w.-]+\.[A-Za-z]{2,})/g, '$1***@$2')
+        .replace(/([^\s@<>"'()[\]{}:,;/\\])[^\s@<>"'()[\]{}:,;/\\]*@([\w.-]+\.[A-Za-z]{2,})/gu, '$1***@$2')
 }
 export const accountId = email => crypto.createHash('sha256').update(String(email).toLowerCase()).digest('hex').slice(0, 16)
+export const maskEmail = email => String(email).includes('@') ? `${Array.from(String(email))[0] || '*'}***@${String(email).split('@').at(-1)}` : '[邮箱已隐藏]'
 export async function hashPassword(password) {
     const salt = crypto.randomBytes(16).toString('hex')
     return { algorithm: 'scrypt-N32768-r8-p3', salt, hash: (await scrypt(password, salt, 64, { N:32768,r:8,p:3,maxmem:64*1024*1024 })).toString('hex') }

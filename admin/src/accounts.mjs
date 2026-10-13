@@ -4,9 +4,10 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
-import { accountId, redact, httpError } from './security.mjs'
+import { accountId, maskEmail, httpError } from './security.mjs'
 const fields={email:'EMAIL',password:'PASSWORD',totpSecret:'TOTP_SECRET',recoveryEmail:'RECOVERY_EMAIL',geoLocale:'GEO_LOCALE',langCode:'LANG_CODE',proxyUrl:'PROXY_URL',proxyPort:'PROXY_PORT',proxyUsername:'PROXY_USERNAME',proxyPassword:'PROXY_PASSWORD',proxyHttp:'PROXY_HTTP',saveFingerprintMobile:'SAVE_FINGERPRINT_MOBILE',saveFingerprintDesktop:'SAVE_FINGERPRINT_DESKTOP'}
 const secrets=new Set(['password','totpSecret','proxyUsername','proxyPassword','recoveryEmail'])
+function publicProxy(value){if(!value)return '';try{const u=new URL(value.includes('://')?value:'http://'+value);u.username='';u.password='';u.search='';u.hash='';return u.origin==='null'?`${u.protocol}//${u.host}`:u.origin}catch{return '[代理地址需重新配置]'}}
 const emailValid=v=>typeof v==='string' && v.length<=254 && /^[^\s@,\[\]]+@[^\s@,\[\]]+\.[^\s@,\[\]]+$/.test(v)
 export function privateRead(file){
     const fd=fs.openSync(file,fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW)
@@ -43,7 +44,7 @@ export class Accounts {
         return a
     })}
     read(){let exists=true;try{fs.lstatSync(this.file)}catch(e){if(e.code==='ENOENT')exists=false;else throw e}if(!exists)return {revision:0,accounts:this.legacy()};const d=privateRead(this.file);if(!Number.isSafeInteger(d.revision)||!Array.isArray(d.accounts)||d.accounts.length>100)throw Error('Invalid account store');for(const a of d.accounts)validate(a);return d}
-    public(){const d=this.read();return {revision:d.revision,source:d.revision?'受保护持久化配置':'容器启动环境变量',accounts:d.accounts.map(a=>({id:a.id,label:redact(a.email),enabled:a.enabled,modifiedAt:a.modifiedAt,geoLocale:a.geoLocale,langCode:a.langCode,proxyUrl:redact(a.proxyUrl),proxyPort:a.proxyPort,proxyHttp:a.proxyHttp,saveFingerprintMobile:a.saveFingerprintMobile,saveFingerprintDesktop:a.saveFingerprintDesktop,...Object.fromEntries([...secrets].map(k=>[k+'Configured',!!a[k]]))}))}}
+    public(){const d=this.read();return {revision:d.revision,source:d.revision?'受保护持久化配置':'容器启动环境变量',accounts:d.accounts.map(a=>({id:a.id,label:maskEmail(a.email),enabled:a.enabled,modifiedAt:a.modifiedAt,geoLocale:a.geoLocale,langCode:a.langCode,proxyUrl:publicProxy(a.proxyUrl),proxyPort:a.proxyPort,proxyHttp:a.proxyHttp,saveFingerprintMobile:a.saveFingerprintMobile,saveFingerprintDesktop:a.saveFingerprintDesktop,...Object.fromEntries([...secrets].map(k=>[k+'Configured',!!a[k]]))}))}}
     update(input){
         const d=this.read();if(input.revision!==d.revision)throw httpError(409,'配置版本已变化，请刷新重试')
         const at=d.accounts.findIndex(a=>a.id===input.id)

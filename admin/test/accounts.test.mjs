@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { Accounts } from '../src/accounts.mjs'
 import { observeLogin } from '../src/account-launch.mjs'
+import { redact } from '../src/security.mjs'
 test('account atomic failure keeps old version, disabled/deleted slots never reappear, secrets preserve/clear',()=>{
     const dir=fs.mkdtempSync(path.join(os.tmpdir(),'mrs-accounts-')),env={CONTROL_DATA_DIR:dir,ACCOUNT_1_EMAIL:'old@example.invalid',ACCOUNT_1_PASSWORD:'OLDSECRET'},a=new Accounts(env)
     try{
@@ -27,4 +28,9 @@ test('login evidence needs actual LOGIN message and unambiguous account; task/co
     observeLogin('[time] [alice] [ERROR] Desktop [LOGIN] Fatal error: ACCOUNT_LOCKED',accounts,evidence);assert.equal(evidence.one.status,'restricted')
     observeLogin('[time] [alice] [ERROR] Desktop [LOGIN] Fatal error: verification manual review',accounts,evidence);assert.equal(evidence.one.status,'manual_verification')
     const ambiguous={};observeLogin('[time] [alice] [INFO] Desktop [LOGIN] Successfully logged in',[...accounts,{email:'alice@other.invalid',id:'two'}],ambiguous);assert.deepEqual(ambiguous,{})
+})
+test('legacy Unicode email and URL-only proxy userinfo never leak through account queries',()=>{
+    const a=new Accounts({CONTROL_DATA_DIR:'/nonexistent-private-test-directory',ACCOUNT_1_EMAIL:'张三@example.invalid',ACCOUNT_1_PROXY_URL:'http://SENSITIVEUSER@proxy.invalid',ACCOUNT_1_PROXY_PORT:'8080'})
+    const text=JSON.stringify(a.public());assert.ok(!text.includes('张三@'));assert.ok(!text.includes('SENSITIVEUSER'));assert.ok(text.includes('张***@'))
+    assert.ok(!redact('张三@example.invalid').includes('张三@'))
 })
