@@ -41,6 +41,10 @@ export class LiveEventHub {
     return this.store.db.prepare('SELECT payload FROM live_events WHERE id>? ORDER BY id ASC LIMIT ?')
       .all(after,Math.min(500,Math.max(1,limit))).map(r=>JSON.parse(r.payload))
   }
+  latest(limit=100){
+    return this.store.db.prepare('SELECT payload FROM live_events ORDER BY id DESC LIMIT ?')
+      .all(Math.min(500,Math.max(1,limit))).reverse().map(r=>JSON.parse(r.payload))
+  }
   accept(value){
     if(!value || !Number.isSafeInteger(value.id) || value.id<=0 || typeof value.kind!=='string'
        || typeof value.time!=='string' || value.kind.length>100)return false
