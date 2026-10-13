@@ -3,7 +3,7 @@ on:
   push:
     branches: [feature/web-admin-notifications]
   pull_request:
-    branches: [main]
+    branches: [main, feature/web-admin-notifications]
 permissions:
   contents: read
 concurrency:
