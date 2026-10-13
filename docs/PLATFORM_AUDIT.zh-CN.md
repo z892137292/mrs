@@ -20,7 +20,7 @@
 
 ## 数据兼容及回滚
 
-Core events.sqlite 增加 runs/run_evidence 两表，不删旧表、不改旧列；Web live_events 为已有表，原子写游标使用原 kv。verified-sessions.json 在已有独立 control-data，mode 0600，保存 HMAC 与观测摘要，不公开原 Cookie。原会话仍使用 sessions/sessions.db。升级不迁移、不覆盖账号数据库。
+Core events.sqlite 增加 runs/run_evidence/run_reviews 三表，不删旧表、不改旧列；Web live_events 为已有表，原子写游标使用原 kv。verified-sessions.json 在已有独立 control-data，mode 0600，保存 HMAC 与观测摘要，不公开原 Cookie。原会话仍使用 sessions/sessions.db。升级不迁移、不覆盖账号数据库。
 
 先通过后台暂停、等待任务与登录浏览器退出，再离线备份完整 Rewards 持久化目录及 Web /data（SQLite WAL/SHM 一并保留或停止服务后复制）；私密备份应加密、0600、不得上传 GitHub。只更换两个镜像引用，compose up -d，不执行 down -v。回滚使用旧配对 digest；增量表可保留但旧版不理解新记录，因此维持 STOP 并人工核查，必要时恢复到**新的空目录**而不是覆盖生产数据。原 backups 默认排除凭证，不可误作含会话完整私密备份。
 
@@ -33,3 +33,7 @@ Core events.sqlite 增加 runs/run_evidence 两表，不删旧表、不改旧列
 场景 A/B：真实微软人工登录、验证码、Authenticator、账号限制与首次邮箱人工绑定；场景 C/D：微软真实业务阶段、积分以及中断；场景 E：实际 NAS 重启和资源曲线。CI 的离线 fixture 仅验证真实 Chromium 的输入、截图、Cookie 和原生会话 DB 流程，不能冒充微软线上验证。PC/Mobile 内部及单次搜索安全自动恢复不具备原子证据，明确不实现；硬件密钥/WebAuthn 未验证。
 
 最终 commit、CI 链接、digest 和实测计数应见对应 CI artifacts/交付报告，不在构建前标记成功。
+
+执行证据不确定时，Core 持久化 STOP 并以 78 停止；数据库复核门禁即使 STOP 文件缺失也阻止启动。人工复核在原 flock 内记录当前证据快照，保留 suspect 原证据。未完成的人工验证不能被已有有效 Cookie 的积分接口响应覆盖。普通账号编辑保留既有邮箱大小写，兼容上游会话数据库键。
+
+本轮 CI 浏览器测试曾因 Patchright 隔离执行环境无法访问页面全局函数失败。测试已改为写入真实 Core Journal 并通过受保护 SSE 验证页面更新，保留原断言。该次失败不计作验收通过。

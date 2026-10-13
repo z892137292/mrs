@@ -6,7 +6,7 @@ import { Accounts, atomicPrivate, privateRead } from './accounts.mjs'
 import { accountId } from './security.mjs'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
-const {Ledger,signature}=createRequire(import.meta.url)('./ledger.cjs')
+const {Ledger,signature,pause}=createRequire(import.meta.url)('./ledger.cjs')
 export function observeLogin(line,accounts,evidence){
     const clean=line.replace(/\x1b\[[0-9;]*m/g,'')
     const match=/^\[[^\]]+\] \[([^\]]+)\] \[(INFO|ERROR)\].*?\[LOGIN\] (.*)$/.exec(clean)
@@ -32,6 +32,7 @@ if(process.argv[1]===fileURLToPath(import.meta.url))try{
     const applied={revision:runtime.revision,startedAt:new Date().toISOString(),accounts:runtime.accounts.map(a=>({id:a.id,modifiedAt:a.modifiedAt})),login:{}}
     if(process.env.CONTROL_API_ENABLED==='true' && process.env.MRS_RUN_ID){
         const config=privateRead(path.join(dir,'config/config.json')),ledger=new Ledger(process.env.CONTROL_DATA_DIR || path.join(dir,'control-data'))
+        if(!ledger.prepare(process.env.MRS_RUN_ID)){ledger.close();try{pause('previous uncertain/interrupted execution is not acknowledged')}finally{process.exit(78)}}
         ledger.create(process.env.MRS_RUN_ID,signature(process.env,runtime.accounts,config),runtime.revision,Number(process.env.MRS_WRAPPER_PID),runtime.accounts.filter(a=>loadedAccounts.some(x=>x.email.trim().toLowerCase()===a.email.trim().toLowerCase())).map(a=>a.id));ledger.close()
         runtime.env.MRS_ACCOUNT_IDS=JSON.stringify(Object.fromEntries(runtime.accounts.map(a=>[a.email.trim().toLowerCase(),a.id])))
     }
