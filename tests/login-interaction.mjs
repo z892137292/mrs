@@ -8,6 +8,7 @@ import http from 'node:http'
 import { createRequire } from 'node:module'
 import { execFileSync } from 'node:child_process'
 import { token } from '../admin/src/security.mjs'
+import { Accounts } from '../admin/src/accounts.mjs'
 import { pathToFileURL } from 'node:url'
 const codeRoot=fs.existsSync('/opt/mrs-admin/src/agent.mjs')?'/opt/mrs-admin/src/':new URL('../admin/src/',import.meta.url).pathname
 const {createAgent}=await import(pathToFileURL(path.join(codeRoot,'agent.mjs')))
@@ -29,6 +30,9 @@ for(const n of ['state','logs','sessions','config'])fs.mkdirSync(path.join(direc
 for(const n of ['dist','node_modules','package.json'])fs.symlinkSync(path.join(upstream,n),path.join(directory,n))
 const config=JSON.parse(fs.readFileSync(path.join(upstream,'config.example.json')));config.sessionPath='./sessions';config.proxy.ignoreCertificateErrors=false;fs.writeFileSync(path.join(directory,'config/config.json'),JSON.stringify(config));fs.symlinkSync('config/config.json',path.join(directory,'config.json'))
 const env={...process.env,APP_DIR:directory,STATE_DIR:path.join(directory,'state'),LOG_DIR:path.join(directory,'logs'),CONTROL_DATA_DIR:path.join(directory,'control'),CONTROL_API_TOKEN:token(),CRON_SCHEDULE:'0 0 1 1 *',TZ:'UTC',ACCOUNT_1_EMAIL:'fixture@example.invalid',ACCOUNT_1_PASSWORD:'SYNTHETIC_ONLY',MRS_OFFLINE_TEST:'true',MRS_LOGIN_FIXTURE_URL:`http://127.0.0.1:${fixture.address().port}/`}
+// Only the resume-dispatch consumer is a fixture; login, native DB, API, signatures and flock remain real.
+const dispatchFile=path.join(directory,'dispatch'),fixtureCtl=path.join(directory,'fixture-ctl')
+fs.writeFileSync(fixtureCtl,`#!/usr/bin/env bash\nif [ "$1" = run ]; then exec /usr/bin/flock -n '${env.STATE_DIR}/run.lock' bash -c 'printf "%s\\n" "$RUN_ACCOUNT_FILTER" >> "${dispatchFile}"; sleep 0.3'; fi\nexec /usr/local/bin/rewards-ctl "$@"\n`,{mode:0o700});env.CTL_PATH=fixtureCtl
 const agent=createAgent(env),server=agent.app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r))
 const id=agent.snapshot().accounts[0].id
 try{
@@ -84,8 +88,25 @@ try{
   assert.equal((await request('/login-interaction',{accountId:id,action:'verify',input:{}})).data.state,'verified')
   const sessions=await request('/sessions');assert.equal(sessions.status,200);assert.ok(!JSON.stringify(sessions.data).includes('storageHash'));assert.match(sessions.data[0].currentStatus,/重新/)
   assert.equal((await request('/login-interaction',{accountId:id,action:'close'})).status,200)
+  const review=await request('/risk-review',{password:'FixtureAdminPassword123'});assert.equal(review.status,200)
+  assert.equal((await request('/risk-resume',{nonce:review.data.nonce,confirmation:'已完成人工核查并确认恢复'})).status,200)
+  const {signature}=require(path.join(codeRoot,'ledger.cjs')),resumeId='verified-pending-fixture',runtime=new Accounts(env).runtime()
+  agent.ledger.create(resumeId,signature(env,runtime.accounts,JSON.parse(fs.readFileSync(path.join(directory,'config/config.json')))),runtime.revision,0,[id]);agent.ledger.finish(resumeId,'failed')
+  const priorCwd=process.cwd();process.chdir(directory)
+  let second,secondServer
+  try{
+   const eligible=await request('/tasks/recovery',{id:resumeId});assert.equal(eligible.data.eligible,true)
+   second=createAgent(env);secondServer=second.app.listen(0,'127.0.0.1');await new Promise(r=>secondServer.once('listening',r))
+   const body={id:resumeId,execute:true,confirmation:'只继续未开始账号'}
+   const attempts=await Promise.all([request('/tasks/recovery',body),fetch(`http://127.0.0.1:${secondServer.address().port}/tasks/recovery`,{method:'POST',headers:{authorization:'Bearer '+env.CONTROL_API_TOKEN,'content-type':'application/json'},body:JSON.stringify(body)}).then(async r=>({status:r.status,data:await r.json()}))])
+   assert.equal(attempts.filter(x=>x.data.accepted===true).length,1);assert.equal(attempts.filter(x=>x.status===409).length,1)
+   for(let i=0;i<100&&!fs.existsSync(dispatchFile);i++)await new Promise(r=>setTimeout(r,20))
+   assert.equal(fs.readFileSync(dispatchFile,'utf8'),'fixture@example.invalid\n')
+   assert.equal(agent.ledger.get(resumeId).state,'recovery_requested')
+   native.closeSessionStore()
+  }finally{process.chdir(priorCwd);if(second){await second.shutdown();secondServer.closeAllConnections();await new Promise(r=>secondServer.close(r))}}
   assert.equal((await request('/logout',{})).status,200)
   assert.equal((await request('/tasks')).status,401)
  }finally{webServer.closeAllConnections();await new Promise(r=>webServer.close(r));await web.close()}
- console.log('PASS: real non-root upstream Chromium, compiled evidence hook, CDP input/screenshot, manual waiting, same flock, binding isolation, fresh HTTP/cookie verification, native session DB restart and private tar backup/restore, identity mismatch/risk refusal, Web/Core HTTP plus Web restart and cleanup; NOT Microsoft online acceptance')
+ console.log('PASS: real non-root upstream Chromium, compiled evidence hook, CDP input/screenshot, manual waiting, same flock, binding isolation, fresh HTTP/cookie verification, native session DB restart and private tar backup/restore, identity mismatch/risk refusal, Web/Core HTTP plus Web restart, two-Core one-time recovery reservation/dispatch and cleanup; NOT Microsoft online acceptance or online Rewards resume')
 }finally{await agent.shutdown();server.closeAllConnections();await new Promise(r=>server.close(r));await new Promise(r=>fixture.close(r));fs.rmSync(directory,{recursive:true,force:true})}
