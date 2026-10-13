@@ -55,11 +55,13 @@ export class LiveEventHub {
     this.store.db.exec('DELETE FROM live_events WHERE id NOT IN (SELECT id FROM live_events ORDER BY id DESC LIMIT 2000)')
     const data='id: '+item.id+'\ndata: '+JSON.stringify(item)+'\n\n'
     for(const subscriber of this.subscribers){
-      try{subscriber.write(data)}catch{this.subscribers.delete(subscriber)}
+      try{if(!subscriber.write(data)){this.subscribers.delete(subscriber);subscriber.end()}}
+      catch{this.subscribers.delete(subscriber);subscriber.destroy()}
     }
     return true
   }
   subscribe(req,res){
+    if(this.subscribers.size>=32)return res.status(429).json({error:'实时连接数量已达上限'})
     let after=Number(req.get('last-event-id') || req.query.after || 0)
     if(!Number.isSafeInteger(after)||after<0)after=0
     res.status(200).set({'Content-Type':'text/event-stream; charset=utf-8',
