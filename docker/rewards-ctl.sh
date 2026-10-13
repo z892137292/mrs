@@ -64,7 +64,14 @@ case "$cmd" in
         ;;
     pause)
         ensure_dirs
-        echo "paused manually${1:+: $*} ($(date -Iseconds))" >"$STOP_FILE"
+        # Never overwrite a risk/verification STOP with an ordinary maintenance reason.
+        if (set -C; echo "paused manually${1:+: $*} ($(date -Iseconds))" >"$STOP_FILE") 2>/dev/null; then
+            :
+        elif [ -f "$STOP_FILE" ]; then
+            echo "Already paused; existing reason preserved."
+        else
+            die "Unable to create pause marker."
+        fi
         echo "Paused. Scheduled runs will be skipped."
         ;;
     resume)
