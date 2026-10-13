@@ -1,0 +1,115 @@
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -1,3 +1,4 @@
++import { controlEvidence } from './util/ControlEvidence'
+ import { AsyncLocalStorage } from 'node:async_hooks'
+ import cluster, { Worker } from 'cluster'
+ import type { BrowserContext, Cookie, Page } from 'patchright'
+@@ -427,6 +428,7 @@
+                 await this.waitBeforeNextAccount(account.email)
+             }
+ 
++            controlEvidence(account.email, 'account.started')
+             const accountStartTime = Date.now()
+             const accountEmail = account.email
+             this.userData.userName = this.utils.getEmailUsername(accountEmail)
+@@ -492,6 +494,7 @@
+                             process.exit(78)
+                         }
+                     } else {
++                        controlEvidence(accountEmail, 'account.completed')
+                         accountStats.push({
+                             email: accountEmail,
+                             initialPoints: accountInitialPoints,
+@@ -509,6 +512,7 @@
+                         )
+                     }
+                 } else {
++                    controlEvidence(accountEmail, 'account.failed')
+                     accountStats.push({
+                         email: accountEmail,
+                         initialPoints: 0,
+--- a/src/functions/activities/search/BrowserSearch.ts
++++ b/src/functions/activities/search/BrowserSearch.ts
+@@ -1,3 +1,4 @@
++import { controlEvidence } from '../../../util/ControlEvidence'
+ import type { Page } from 'patchright'
+ 
+ import { URLs } from '../../../constants/urls'
+@@ -31,6 +32,7 @@
+         const startBalance = Number(this.bot.userData.currentPoints ?? 0)
+         this.bot.logger.info(isMobile, 'SEARCH-BING', `Starting Bing searches | currentBalance=${startBalance}`)
+ 
++        controlEvidence(this.bot.currentAccountEmail, 'task.step.started', isMobile ? 'mobile_search' : 'pc_search')
+         const tracker = new PointsTracker(this.bot, isMobile)
+         try {
+             const stats = await this.runSearchSession(page, isMobile, tracker)
+@@ -50,6 +52,11 @@
+             )
+             return stats.totalGained
+         } finally {
++            controlEvidence(
++                this.bot.currentAccountEmail,
++                'task.step.returned',
++                isMobile ? 'mobile_search' : 'pc_search'
++            )
+             await page.goto(URLs.bing.origin).catch(() => {})
+         }
+     }
+--- a/src/functions/activities/search/SearchProgress.ts
++++ b/src/functions/activities/search/SearchProgress.ts
+@@ -1,3 +1,4 @@
++import { controlEvidence } from '../../../util/ControlEvidence'
+ import type { MicrosoftRewardsBot } from '../../../index'
+ import type { Counters, DashboardImpression } from '../../../interface/DashboardData'
+ import type { MissingSearchPoints } from '../../../interface/Points'
+@@ -23,7 +24,24 @@
+     }
+ 
+     public async getMissing(isMobile: boolean): Promise<MissingSearchPoints> {
+-        return this.calculateMissing(await this.getCounters(), isMobile)
++        const counters = await this.getCounters()
++        const quotas = this.calculateQuotas(counters)
++        const quota = isMobile
++            ? quotas.mobile
++            : {
++                  earned: quotas.desktop.earned + quotas.edge.earned,
++                  max: quotas.desktop.max + quotas.edge.max,
++                  remaining: quotas.desktop.remaining + quotas.edge.remaining
++              }
++        if (quota.max > 0)
++            controlEvidence(
++                this.bot.currentAccountEmail,
++                quota.remaining === 0 ? 'task.step.completed' : 'task.step.progress',
++                isMobile ? 'mobile_search' : 'pc_search',
++                quota.earned,
++                quota.remaining
++            )
++        return this.calculateMissing(counters, isMobile)
+     }
+ 
+     public calculateMissing(counters: Counters, isMobile: boolean): MissingSearchPoints {
+--- /dev/null
++++ b/src/util/ControlEvidence.ts
+@@ -0,0 +1,21 @@
++import { createRequire } from 'node:module'
++// Optional evidence observer. No searches, retries or authentication decisions are changed.
++export function controlEvidence(
++    email: string | null,
++    kind: string,
++    stage?: string,
++    observed?: number,
++    remaining?: number
++): void {
++    if (process.env.CONTROL_API_ENABLED !== 'true' || !process.env.MRS_RUN_ID || !email) return
++    const observer = createRequire(__filename)('/opt/mrs-admin/src/ledger.cjs') as {
++        emit: (
++            bot: { currentAccountEmail: string },
++            kind: string,
++            stage?: string,
++            observed?: number,
++            remaining?: number
++        ) => void
++    }
++    observer.emit({ currentAccountEmail: email }, kind, stage, observed, remaining)
++}

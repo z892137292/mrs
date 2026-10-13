@@ -3,6 +3,7 @@ import { createRequire } from 'node:module'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 const require=createRequire(`${process.env.APP_DIR}/package.json`),{chromium}=require('patchright')
+const {Journal}=await import('/opt/mrs-admin/src/journal.mjs')
 assert.notEqual(process.getuid(),0)
 const logName='run-20261013-090000-123.log'
 fs.writeFileSync(`${process.env.APP_DIR}/logs/${logName}`, '<img src=x onerror="window.__xss=1">\nCookie: A=NEVER_EXPOSE_COOKIE; B=NEVER_EXPOSE_SECOND\n')
@@ -53,6 +54,11 @@ try{
     await page.locator('#account-rows tr').filter({hasText:'r***'}).getByText('删除',{exact:true}).click()
     await page.waitForFunction(()=>!document.querySelector('#account-rows').textContent.includes('r***'))
     await page.locator('[data-page="tasks"]').click()
+    // Actual Core journal -> authenticated SSE -> browser; offline fixture, not Microsoft task progress.
+    const journal=new Journal(process.env.CONTROL_DATA_DIR || process.env.APP_DIR+'/control-data')
+    journal.add('task.step.progress',{accountId:snapshot.accounts[0].id,stage:'pc_search',result:'running',observedPoints:30,remainingPoints:120,reason:'CI离线管道验证，不是微软业务结果',password:'NEVER_EXPOSE_RENDERER'});journal.close()
+    await page.waitForFunction(()=>document.querySelector('#live-timeline').textContent.includes('服务端配额积分已得 30'))
+    const timeline=await page.locator('#live-timeline').textContent();assert.match(timeline,/PC 搜索/);assert.match(timeline,/服务端配额积分已得 30/);assert.match(timeline,/不代表搜索次数/);assert.ok(!timeline.includes('NEVER_EXPOSE_RENDERER'))
     const pause=await page.evaluate(async()=>{const s=await(await fetch('/api/session')).json();return(await fetch('/api/control',{method:'POST',headers:{'content-type':'application/json','x-csrf-token':s.csrf},body:JSON.stringify({action:'pause'})})).status})
     assert.equal(pause,200)
     const pausedRun=await page.evaluate(async()=>{const s=await(await fetch('/api/session')).json();return(await fetch('/api/control',{method:'POST',headers:{'content-type':'application/json','x-csrf-token':s.csrf},body:JSON.stringify({action:'run'})})).status})
@@ -69,6 +75,7 @@ try{
     await page.waitForFunction(()=>document.querySelector('#toast').textContent.includes('启用一个'))
     await page.locator('[data-page="settings"]').click()
     await page.waitForFunction(v=>document.querySelector('#system-details').textContent.includes(v),process.env.MRS_VERSION)
+    for(const section of ['login','recovery','exceptions','history']){await page.locator(`[data-page="${section}"]`).click();assert.equal(await page.locator(`#${section}`).isVisible(),true)}
     await page.setViewportSize({width:390,height:844})
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1),'mobile horizontal overflow')
     await page.screenshot({path:'/tmp/mrs-admin-mobile.png',fullPage:true})

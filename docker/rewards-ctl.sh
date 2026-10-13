@@ -76,6 +76,13 @@ case "$cmd" in
         ;;
     resume)
         ensure_dirs
+        if is_true "${CONTROL_API_ENABLED:-false}"; then
+            if [ "${1:-}" = --reviewed ]; then
+                node /opt/mrs-admin/src/ledger.cjs acknowledge || exit 78
+            else
+                node /opt/mrs-admin/src/ledger.cjs check || exit 78
+            fi
+        fi
         if [ -f "$STOP_FILE" ] && grep -Eqi 'bot-score|Microsoft risk|manual review' "$STOP_FILE" && [ "${1:-}" != --reviewed ]; then
             echo 'Risk/verification stop requires manual review. After completing it, use: rewards-ctl resume --reviewed' >&2
             exit 78

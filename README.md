@@ -1,6 +1,6 @@
 # Microsoft Rewards Custom · 中文 Web 管理候选版
 
-继续现有项目，成功基线为 v1.0.3，commit `b903b83773304f97347bbcdd54f68946d9ead212`。稳定镜像 `ghcr.io/z892137292/microsoft-rewards-custom:1.0.3` 不覆盖。本分支 `feature/web-admin-notifications` 开发 1.1.0-rc.4；实际构建、测试及镜像发布结果以本分支 Actions 和最终交付报告为准，不能把本文当作成功记录。
+继续现有项目，成功基线为 v1.0.3，commit `b903b83773304f97347bbcdd54f68946d9ead212`。稳定镜像及已发布 rc.4 均不覆盖。本分支 `feature/web-phase1-event-stream` 继续 PR #4，开发 1.1.0-rc.5；实际构建、测试及镜像发布结果以对应 commit 的 Actions 和最终交付报告为准，不能把本文当作成功记录。
 
 ## 新增内容
 
@@ -15,6 +15,14 @@
 后台数据来自真实状态和上游运行摘要，不提供演示数据。当前余额没有已核验来源时显示未知；collectedPoints 只称“上游报告变化”，不能当作独立核验余额或搜索次数换算。普通恢复不能解除风险；人工核查需要重新输入密码和一次性二次确认。账号配置支持Web私有持久化并由下一次任务动态加载；系统调度设置仍只读，环境配置需无损重建对应服务。
 
 三份固定上游补丁未修改。没有新增反检测、验证码绕过、自动解除限制或 coreBundle.js 修改。
+
+## 一站式操作增量（rc.5）
+
+新增真实持久化事件、登录交互、运行证据/异常/历史和受限恢复入口。人工登录画面来自 Core 真正使用的 Chromium，并保存到原生会话数据库；不会打开另一个普通浏览器冒充 NAS 会话。核验成功需要同 Cookie 的官方接口实时响应；首次邮箱归属还须人工确认。登录期间保留 STOP，成功后不会自动解除风险暂停。
+
+恢复只继续“尚未开始账号”，要求配置、版本与会话重新核验一致。不具备可信执行证据的 PC/Mobile 内部、单次搜索标记 suspect，不能自动跳过。实时传输保留认证 SSE（非 WebSocket），人工输入使用 CSRF POST；截图仅内存转发，不进历史数据库。
+
+[接口协议 v1.1](docs/MRS_PROTOCOL_v1.1.md) · [源码审计及验收边界](docs/PLATFORM_AUDIT.zh-CN.md)。真实微软登录、验证码/Authenticator、NAS 会话重启以及多日稳定性必须人工实机验收；CI 离线 fixture 不是线上成功证明。
 
 [中文 NAS 安装](docs/NAS_WEB.zh-CN.md) · [通知配置](docs/NOTIFICATIONS.zh-CN.md) · [升级与回滚](docs/UPGRADE_ROLLBACK.zh-CN.md) · [架构与验证](docs/WEB_SECURITY.zh-CN.md)
 

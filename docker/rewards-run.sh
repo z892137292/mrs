@@ -64,6 +64,7 @@ echo "$$" >"$RUN_PID_FILE"
 
 # ── Per-run log file (the logger must not inherit the lock fd) ──────────────
 RUN_ID="$(date '+%Y%m%d-%H%M%S')-$$"
+export MRS_RUN_ID="$RUN_ID" MRS_WRAPPER_PID="$$"
 RUN_LOG="$LOG_DIR/run-$RUN_ID.log"
 ATTEMPT_SUMMARY_FILE="$STATE_DIR/.attempt-summary-$RUN_ID.json"
 RISK_FILE="$STATE_DIR/.risk-$RUN_ID"
@@ -289,9 +290,16 @@ while [ "$STOPPING" = 0 ] && [ "$ATTEMPT" -lt "$MAX_ATTEMPTS" ]; do
     # Risk warnings have priority over success and retries. Do not continue
     # interacting with other accounts after one account is challenged.
     if [ -n "$BOT_EMAILS" ] || [ "$RISK_DETECTED" = 1 ] || [ "$ATTEMPT_RC" -eq 78 ]; then
-        printf 'bot-score warning reported (%s)\n' "$(date -Iseconds)" >"$STOP_FILE"
-        log "WARNING: bot-score warning detected; all further runs paused pending manual review."
-        RESULT="risk_paused"
+        if [ -z "$BOT_EMAILS" ] && [ "$RISK_DETECTED" = 0 ] && grep -q 'execution evidence suspect' "$STOP_FILE" 2>/dev/null; then
+            RESULT="suspect"
+            log "WARNING: uncertain execution evidence; all further runs paused pending manual review."
+        else
+            if ! grep -Eqi 'bot-score|Microsoft risk|manual review|verification|restriction' "$STOP_FILE" 2>/dev/null || grep -q 'execution evidence suspect' "$STOP_FILE" 2>/dev/null; then
+                printf 'bot-score warning reported (%s)\n' "$(date -Iseconds)" >"$STOP_FILE"
+            fi
+            log "WARNING: risk/verification stop; all further runs paused pending manual review."
+            RESULT="risk_paused"
+        fi
         FINAL_RC=78
         break
     fi
@@ -354,6 +362,7 @@ if [ "$RESULT" = risk_paused ]; then
         emit_admin_event verification_required "$RESULT"
     fi
 fi
+if [ "$RESULT" = suspect ]; then emit_admin_event account_paused "$RESULT"; fi
 if [ -f "$STOP_FILE" ] && grep -q 'circuit breaker:' "$STOP_FILE"; then
     emit_admin_event circuit_open "$RESULT"
 fi
@@ -362,6 +371,6 @@ log "Run $RUN_ID finished: $RESULT"
 case "$RESULT" in
     success | paused) exit 0 ;;
     stopped) exit 143 ;;
-    risk_paused) exit 78 ;;
+    risk_paused | suspect) exit 78 ;;
     *) exit 1 ;;
 esac

@@ -57,7 +57,9 @@ export class Accounts {
             for(const key of [...Object.keys(fields),'enabled'])if(Object.hasOwn(v,key) && !(secrets.has(key) && v[key]===''))a[key]=v[key]
             if(v.clearSecrets!==undefined && (!Array.isArray(v.clearSecrets) || v.clearSecrets.some(k=>!secrets.has(k))))throw httpError(400,'清除凭证参数无效')
             for(const k of v.clearSecrets || [])a[k]=''
-            a.email=a.email.trim().toLowerCase();a.geoLocale=a.geoLocale.toLowerCase()==='auto'?'auto':a.geoLocale.toUpperCase();validate(a)
+            const requestedEmail=a.email.trim()
+            a.email=at>=0&&requestedEmail.toLowerCase()===old.email.trim().toLowerCase()?old.email:requestedEmail.toLowerCase()
+            a.geoLocale=a.geoLocale.toLowerCase()==='auto'?'auto':a.geoLocale.toUpperCase();validate(a)
             if(d.accounts.some(x=>x.id!==a.id && x.email.toLowerCase()===a.email))throw httpError(409,'邮箱已存在')
             a.modifiedAt=new Date().toISOString();if(at<0)d.accounts.push(a);else d.accounts[at]=a
         }else throw httpError(400,'账号操作不允许')

@@ -2,10 +2,11 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
-import { Accounts, atomicPrivate } from './accounts.mjs'
+import { Accounts, atomicPrivate, privateRead } from './accounts.mjs'
 import { accountId } from './security.mjs'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
+const {Ledger,signature,pause}=createRequire(import.meta.url)('./ledger.cjs')
 export function observeLogin(line,accounts,evidence){
     const clean=line.replace(/\x1b\[[0-9;]*m/g,'')
     const match=/^\[[^\]]+\] \[([^\]]+)\] \[(INFO|ERROR)\].*?\[LOGIN\] (.*)$/.exec(clean)
@@ -26,8 +27,15 @@ if(process.argv[1]===fileURLToPath(import.meta.url))try{
     // Execute the pinned upstream validator/loader before recording "loaded".
     // The bot will consume exactly this immutable environment on this attempt.
     const original=process.env
-    try{process.env=runtime.env;const {loadAccounts}=createRequire(import.meta.url)(path.join(dir,'dist/util/Load.js'));const loaded=loadAccounts();if(!loaded.length)throw Error('No loaded accounts')}finally{process.env=original}
+    let loadedAccounts
+    try{process.env=runtime.env;const {loadAccounts}=createRequire(import.meta.url)(path.join(dir,'dist/util/Load.js'));loadedAccounts=loadAccounts();if(!loadedAccounts.length)throw Error('No loaded accounts')}finally{process.env=original}
     const applied={revision:runtime.revision,startedAt:new Date().toISOString(),accounts:runtime.accounts.map(a=>({id:a.id,modifiedAt:a.modifiedAt})),login:{}}
+    if(process.env.CONTROL_API_ENABLED==='true' && process.env.MRS_RUN_ID){
+        const config=privateRead(path.join(dir,'config/config.json')),ledger=new Ledger(process.env.CONTROL_DATA_DIR || path.join(dir,'control-data'))
+        if(!ledger.prepare(process.env.MRS_RUN_ID)){ledger.close();try{pause('previous uncertain/interrupted execution is not acknowledged')}finally{process.exit(78)}}
+        ledger.create(process.env.MRS_RUN_ID,signature(process.env,runtime.accounts,config),runtime.revision,Number(process.env.MRS_WRAPPER_PID),runtime.accounts.filter(a=>loadedAccounts.some(x=>x.email.trim().toLowerCase()===a.email.trim().toLowerCase())).map(a=>a.id));ledger.close()
+        runtime.env.MRS_ACCOUNT_IDS=JSON.stringify(Object.fromEntries(runtime.accounts.map(a=>[a.email.trim().toLowerCase(),a.id])))
+    }
     atomicPrivate(path.join(state,'account-applied.json'),applied)
     const child=spawn(process.execPath,[path.join(dir,'dist/index.js')],{env:runtime.env,stdio:['ignore','pipe','pipe'],shell:false})
     for(const [stream,out]of [[child.stdout,process.stdout],[child.stderr,process.stderr]]){

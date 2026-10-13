@@ -68,7 +68,7 @@ COPY admin/package.json admin/package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
 
 FROM ${NODE_IMAGE} AS runtime
-ARG APP_VERSION=1.1.0-rc.4
+ARG APP_VERSION=1.1.0-rc.5
 ARG APP_COMMIT=unknown
 ARG UPSTREAM_REF=d0f07d74a0ed4dda127855d6e3dde98bf4c89d6e
 

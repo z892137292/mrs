@@ -6,6 +6,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import crypto from 'node:crypto'
 import { Store, SqliteSessionStore } from './store.mjs'
+import { LiveEventHub } from './live-events.mjs'
 import { Notifications, validateConfig, configPublic } from './notifications.mjs'
 import { token, equal, hashPassword, checkPassword, passwordValid, httpError, redact } from './security.mjs'
 const publicDirectory=fileURLToPath(new URL('../public/',import.meta.url))
@@ -19,16 +20,17 @@ export function createWeb(env=process.env, options={}) {
     const notifications=new Notifications(store,{publicUrl:publicUrl.href,...options.notificationOptions})
     let stopped=false, polling=false, connected=null, schedulerHealthy=null
     const agentUrl=env.CONTROL_URL || 'http://rewards:8090'
+    const liveHub=new LiveEventHub(store,{baseUrl:agentUrl,token:env.CONTROL_API_TOKEN})
     async function agent(route, body) {
-        const r=await fetch(new URL(route,agentUrl),{method:body?'POST':'GET',headers:{authorization:`Bearer ${env.CONTROL_API_TOKEN}`,...(body?{'content-type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(12000),redirect:'error'})
+        const r=await fetch(new URL(route,agentUrl),{method:body?'POST':'GET',headers:{authorization:`Bearer ${env.CONTROL_API_TOKEN}`,...(body?{'content-type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(route==='/login'?35000:12000),redirect:'error'})
         if(!r.ok){ const data=await r.json().catch(()=>({}));throw httpError(r.status,redact(data.error || '控制服务暂不可用')) }
         return route.startsWith('/logs/')?r.text():r.json()
     }
     app.disable('x-powered-by')
     if(env.WEB_TRUST_PROXY==='true')app.set('trust proxy',1)
-    app.use(helmet({contentSecurityPolicy:{directives:{defaultSrc:["'self'"],scriptSrc:["'self'"],styleSrc:["'self'"],connectSrc:["'self'"],imgSrc:["'self'"],objectSrc:["'none'"],frameAncestors:["'none'"],upgradeInsecureRequests:secure?[]:null}},strictTransportSecurity:secure?undefined:false}))
+    app.use(helmet({contentSecurityPolicy:{directives:{defaultSrc:["'self'"],scriptSrc:["'self'"],styleSrc:["'self'"],connectSrc:["'self'"],imgSrc:["'self'",'data:'],objectSrc:["'none'"],frameAncestors:["'none'"],upgradeInsecureRequests:secure?[]:null}},strictTransportSecurity:secure?undefined:false}))
     app.use(express.json({limit:'16kb'}))
-    app.get('/healthz',(_req,res)=>res.json({healthy:true,uid:process.getuid(),version:env.MRS_VERSION || '1.1.0-rc.4'}))
+    app.get('/healthz',(_req,res)=>res.json({healthy:true,uid:process.getuid(),version:env.MRS_VERSION || '1.1.0-rc.5'}))
     app.use(session({name:'mrs.sid',secret:store.get('sessionSecret'),resave:false,saveUninitialized:false,store:new SqliteSessionStore(store),cookie:{httpOnly:true,sameSite:'strict',secure,maxAge:8*3600000}}))
     app.use('/api',(_req,res,next)=>{res.set('Cache-Control','no-store');next()})
     app.get('/api/session',(req,res)=>{
@@ -65,7 +67,7 @@ export function createWeb(env=process.env, options={}) {
         req.session.admin=true;req.session.csrf=token();store.audit('admin','login','成功');res.json({ok:true,csrf:req.session.csrf})
     })
     app.use('/api',(req,_res,next)=>req.session.admin===true?next():next(httpError(401,'请先登录')))
-    app.post('/api/logout',async(req,res)=>{store.audit('admin','logout','成功');await new Promise((resolve,reject)=>req.session.destroy(e=>e?reject(e):resolve()));res.clearCookie('mrs.sid',{httpOnly:true,sameSite:'strict',secure});res.json({ok:true})})
+    app.post('/api/logout',async(req,res)=>{store.audit('admin','logout','成功');if(req.session.loginBinding)await agent('/login',{...req.session.loginBinding,action:'close'}).catch(()=>{});await new Promise((resolve,reject)=>req.session.destroy(e=>e?reject(e):resolve()));res.clearCookie('mrs.sid',{httpOnly:true,sameSite:'strict',secure});res.json({ok:true})})
     app.get('/api/snapshot',async(_req,res)=>res.json(await agent('/snapshot')))
     app.get('/api/logs',async(req,res)=>res.json(await agent(`/logs?date=${encodeURIComponent(req.query.date || '')}&result=${encodeURIComponent(req.query.result || '')}`)))
     app.get('/api/logs/:name',async(req,res)=>{
@@ -76,6 +78,24 @@ export function createWeb(env=process.env, options={}) {
     })
     const mutationLimit=rateLimit({windowMs:60000,limit:30,standardHeaders:'draft-8',legacyHeaders:false})
     app.get('/api/accounts',async(_req,res)=>res.json(await agent('/accounts')))
+    app.get('/api/sessions',async(_req,res)=>res.json(await agent('/sessions')))
+    app.get('/api/tasks',async(_req,res)=>res.json(await agent('/tasks')))
+    app.post('/api/tasks/recovery',mutationLimit,async(req,res)=>{store.audit('admin','task_recovery',req.body.execute===true?'执行请求':'校验请求');res.json(await agent('/tasks/recovery',req.body))})
+    app.post('/api/login-interaction',rateLimit({windowMs:60000,limit:120,standardHeaders:'draft-8',legacyHeaders:false}),async(req,res)=>{
+        const {action,accountId,input}=req.body
+        if(!['start','state','frame','input','verify','close'].includes(action))throw httpError(400,'登录操作不允许')
+        if(action==='start'){
+            if(!await checkPassword(String(req.body.password || '').slice(0,129),store.get('admin')) || req.body.confirmation!=='仅人工登录，不解除风险暂停')throw httpError(403,'人工登录需要管理员密码与明确确认')
+            if(req.session.loginBinding && req.session.loginBinding.accountId!==accountId)throw httpError(409,'请先关闭原账号登录交互')
+            req.session.loginBinding ||= {accountId,owner:token()}
+        }
+        const b=req.session.loginBinding
+        if(!b || b.accountId!==accountId)throw httpError(403,'该登录交互不属于当前管理会话')
+        if(action!=='frame' && action!=='state')store.audit('admin','login_'+action,'人工操作；不记录输入内容')
+        const result=await agent('/login',{accountId,owner:b.owner,action,input})
+        if(action==='close')delete req.session.loginBinding
+        res.json(result)
+    })
     app.post('/api/accounts',mutationLimit,async(req,res)=>{
         store.audit('admin','account_configuration','请求')
         try{const data=await agent('/accounts',req.body);store.audit('admin','account_configuration',`已保存 revision ${data.revision}`);res.json(data)}catch(e){store.audit('admin','account_configuration','拒绝/失败，未确认保存');throw e}
@@ -114,6 +134,8 @@ export function createWeb(env=process.env, options={}) {
     })
     app.get('/api/audit',(_req,res)=>res.json(store.db.prepare('SELECT time,actor,action,result FROM audit ORDER BY id DESC LIMIT 200').all()))
     app.get('/api/events',(_req,res)=>res.json(store.db.prepare('SELECT time,kind,v FROM events ORDER BY time DESC LIMIT 100').all().map(x=>({...x,...JSON.parse(x.v),v:undefined}))))
+    app.get('/api/events/history',(req,res)=>res.json(/^\d+$/.test(String(req.query.after||''))?liveHub.recent(Number(req.query.after),100):liveHub.latest(100)))
+    app.get('/api/events/live',(req,res)=>liveHub.subscribe(req,res))
     app.use('/api',(_req,res)=>res.status(404).json({error:'接口不存在'}))
     app.use(express.static(publicDirectory,{index:'index.html'}))
     app.use((err,_req,res,_next)=>res.status(err.status || 500).json({error:err.status && err.status<500?redact(err.message):'服务暂不可用，请查看审计记录'}))
@@ -121,8 +143,10 @@ export function createWeb(env=process.env, options={}) {
         if(polling || stopped)return
         polling=true
         try{
+            const epoch=store.get('coreLiveGap')?.time
             const s=await agent('/snapshot')
             const events=await agent(`/events?after=${store.get('eventCursor') || 0}`)
+            if(epoch!==store.get('coreLiveGap')?.time)return // A simultaneous Core reset invalidates this old cursor response.
             // Declare recovery only after BOTH endpoints work, not before a failing event fetch.
             if(connected===false)notifications.enqueue({id:`recovered-${Date.now()}`,kind:'service_recovered',result:'任务控制连接恢复'})
             connected=true
@@ -130,8 +154,9 @@ export function createWeb(env=process.env, options={}) {
             if(schedulerHealthy!==healthy && schedulerHealthy!==null)notifications.enqueue({id:`scheduler-${Date.now()}`,kind:healthy?'service_recovered':'service_unavailable',result:'调度器健康状态变化'})
             schedulerHealthy=healthy
             for(const e of events){
-                notifications.enqueue({...e,id:`agent-${e.id}`})
-                if(e.kind==='task_finished' && e.result==='failed')notifications.enqueue({...e,id:`agent-${e.id}-failed`,kind:'task_failed'})
+                const identity=`agent-${e.id}-${e.time || 'legacy'}`
+                notifications.enqueue({...e,id:identity})
+                if(e.kind==='task_finished' && e.result==='failed')notifications.enqueue({...e,id:`${identity}-failed`,kind:'task_failed'})
                 store.set('eventCursor',e.id)
             }
         }catch{
@@ -141,10 +166,11 @@ export function createWeb(env=process.env, options={}) {
     }
     const timers=options.background===false?[]:[setInterval(()=>{poll().catch(()=>{})},2000),setInterval(()=>{notifications.tick().catch(()=>{})},1000)]
     for(const t of timers)t.unref()
-    return {app,store,notifications,poll,agent,async close(){stopped=true;for(const t of timers)clearInterval(t);while(polling || notifications.running)await new Promise(r=>setTimeout(r,50));store.close()}}
+    if(options.background!==false)liveHub.start()
+    return {app,store,notifications,poll,agent,liveHub,async close(){stopped=true;for(const t of timers)clearInterval(t);await liveHub.stop();while(polling || notifications.running)await new Promise(r=>setTimeout(r,50));store.close()}}
 }
 if(process.argv[1] && path.basename(process.argv[1])==='server.mjs'){
     const web=createWeb(),server=web.app.listen(Number(process.env.WEB_PORT || 8080),'0.0.0.0')
-    const stop=()=>{server.close(async()=>{await web.close();process.exit(0)});setTimeout(()=>process.exit(0),15000).unref()}
+    const stop=async()=>{setTimeout(()=>process.exit(0),15000).unref();await web.close();server.closeAllConnections();server.close(()=>process.exit(0))}
     process.once('SIGTERM',stop);process.once('SIGINT',stop)
 }

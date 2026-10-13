@@ -11,7 +11,7 @@ export class Journal {
           CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY AUTOINCREMENT,time TEXT,kind TEXT,v TEXT);`)
     }
     add(kind, data = {}) {
-        const v = { result: redact(data.result), reason: redact(data.reason), runId: redact(data.runId), accounts: (data.accounts || []).slice(0, 100).map(redact) }
+        const v = { result: redact(data.result), reason: redact(data.reason), runId: redact(data.runId), accounts: (data.accounts || []).slice(0, 100).map(redact), accountId:/^[a-f0-9-]{16,64}$/.test(data.accountId || '')?data.accountId:null, stage:['pc_search','mobile_search','other','login'].includes(data.stage)?data.stage:null, observedPoints:Number.isFinite(data.observedPoints)?data.observedPoints:null, remainingPoints:Number.isFinite(data.remainingPoints)?data.remainingPoints:null }
         try {
             this.db.prepare('INSERT INTO events(time,kind,v) VALUES(?,?,?)').run(new Date().toISOString(), kind, JSON.stringify(v))
             this.db.exec('DELETE FROM events WHERE id NOT IN (SELECT id FROM events ORDER BY id DESC LIMIT 2000)')
