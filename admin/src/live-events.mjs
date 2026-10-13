@@ -26,7 +26,7 @@ export function streamCoreEvents(journal, req, res, {intervalMs=750}={}) {
   const timer=setInterval(send,intervalMs)
   const heartbeat=setInterval(()=>{if(!closed && !res.destroyed)res.write(': keepalive\n\n')},15000)
   timer.unref();heartbeat.unref()
-  req.on('close',()=>{closed=true;clearInterval(timer);clearInterval(heartbeat)})
+  res.on('close',()=>{closed=true;clearInterval(timer);clearInterval(heartbeat)})
 }
 
 export class LiveEventHub {
@@ -70,7 +70,7 @@ export class LiveEventHub {
     this.subscribers.add(res)
     const heartbeat=setInterval(()=>{if(!res.destroyed)res.write(': keepalive\n\n')},15000)
     heartbeat.unref()
-    req.on('close',()=>{clearInterval(heartbeat);this.subscribers.delete(res)})
+    res.on('close',()=>{clearInterval(heartbeat);this.subscribers.delete(res)})
   }
   start(){
     if(!this.stopped)return
