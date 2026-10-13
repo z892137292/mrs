@@ -6,6 +6,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import crypto from 'node:crypto'
 import { Store, SqliteSessionStore } from './store.mjs'
+import { LiveEventHub } from './live-events.mjs'
 import { Notifications, validateConfig, configPublic } from './notifications.mjs'
 import { token, equal, hashPassword, checkPassword, passwordValid, httpError, redact } from './security.mjs'
 const publicDirectory=fileURLToPath(new URL('../public/',import.meta.url))
@@ -19,6 +20,7 @@ export function createWeb(env=process.env, options={}) {
     const notifications=new Notifications(store,{publicUrl:publicUrl.href,...options.notificationOptions})
     let stopped=false, polling=false, connected=null, schedulerHealthy=null
     const agentUrl=env.CONTROL_URL || 'http://rewards:8090'
+    const liveHub=new LiveEventHub(store,{baseUrl:agentUrl,token:env.CONTROL_API_TOKEN})
     async function agent(route, body) {
         const r=await fetch(new URL(route,agentUrl),{method:body?'POST':'GET',headers:{authorization:`Bearer ${env.CONTROL_API_TOKEN}`,...(body?{'content-type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(12000),redirect:'error'})
         if(!r.ok){ const data=await r.json().catch(()=>({}));throw httpError(r.status,redact(data.error || '控制服务暂不可用')) }
@@ -114,6 +116,8 @@ export function createWeb(env=process.env, options={}) {
     })
     app.get('/api/audit',(_req,res)=>res.json(store.db.prepare('SELECT time,actor,action,result FROM audit ORDER BY id DESC LIMIT 200').all()))
     app.get('/api/events',(_req,res)=>res.json(store.db.prepare('SELECT time,kind,v FROM events ORDER BY time DESC LIMIT 100').all().map(x=>({...x,...JSON.parse(x.v),v:undefined}))))
+    app.get('/api/events/history',(req,res)=>res.json(liveHub.recent(/^\d+$/.test(String(req.query.after||''))?Number(req.query.after):0,100)))
+    app.get('/api/events/live',(req,res)=>liveHub.subscribe(req,res))
     app.use('/api',(_req,res)=>res.status(404).json({error:'接口不存在'}))
     app.use(express.static(publicDirectory,{index:'index.html'}))
     app.use((err,_req,res,_next)=>res.status(err.status || 500).json({error:err.status && err.status<500?redact(err.message):'服务暂不可用，请查看审计记录'}))
@@ -141,7 +145,8 @@ export function createWeb(env=process.env, options={}) {
     }
     const timers=options.background===false?[]:[setInterval(()=>{poll().catch(()=>{})},2000),setInterval(()=>{notifications.tick().catch(()=>{})},1000)]
     for(const t of timers)t.unref()
-    return {app,store,notifications,poll,agent,async close(){stopped=true;for(const t of timers)clearInterval(t);while(polling || notifications.running)await new Promise(r=>setTimeout(r,50));store.close()}}
+    if(options.background!==false)liveHub.start()
+    return {app,store,notifications,poll,agent,liveHub,async close(){stopped=true;for(const t of timers)clearInterval(t);await liveHub.stop();while(polling || notifications.running)await new Promise(r=>setTimeout(r,50));store.close()}}
 }
 if(process.argv[1] && path.basename(process.argv[1])==='server.mjs'){
     const web=createWeb(),server=web.app.listen(Number(process.env.WEB_PORT || 8080),'0.0.0.0')
