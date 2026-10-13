@@ -11,6 +11,15 @@ try {
         let accounts = []
         if (kind === 'task_started') accounts = Object.keys(process.env).filter(k => /^ACCOUNT_[1-9]\d*_EMAIL$/.test(k)).map(k => process.env[k])
         else try { accounts = JSON.parse(fs.readFileSync(path.join(process.env.STATE_DIR || `${process.env.APP_DIR}/state`, 'last-summary.json'))).accounts.map(a => a.email) } catch {}
-        j.add(kind, { runId, result, reason, accounts }); j.close()
+        j.add(kind, { runId, result, reason, accounts })
+        // Standardized event types are derived only from actual wrapper outcomes.
+        // No synthetic PC/mobile progress is emitted until search-level instrumentation exists.
+        if(kind==='task_started')j.add('task.started',{runId,result:'running',accounts})
+        if(kind==='task_finished'){
+            const finished={success:'task.completed',failed:'task.failed',risk_paused:'task.paused',stopped:'task.paused'}[result]
+            if(finished)j.add(finished,{runId,result,reason,accounts})
+        }
+        if(kind==='verification_required')j.add('task.auth.required',{runId,result:'waiting_manual_review',reason,accounts})
+        j.close()
     }
 } catch { /* A journal failure must not change lock, retry, STOP or exit code. */ }
