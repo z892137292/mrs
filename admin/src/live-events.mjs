@@ -66,14 +66,15 @@ export class LiveEventHub {
   }
   subscribe(req,res){
     if(this.subscribers.size>=32)return res.status(429).json({error:'实时连接数量已达上限'})
-    let after=Number(req.get('last-event-id') || req.query.after || 0)
+    const rawCursor=req.get('last-event-id') || req.query.after
+    let after=Number(rawCursor || 0)
     if(!Number.isSafeInteger(after)||after<0)after=0
     res.status(200).set({'Content-Type':'text/event-stream; charset=utf-8',
       'Cache-Control':'no-store, no-transform','Connection':'keep-alive','X-Accel-Buffering':'no'})
     res.flushHeaders()
     res.write('retry: 3000\n\n')
     // Backfill from durable Web data before joining live broadcasts.
-    for(const item of this.recent(after,500))res.write('id: '+item.id+'\ndata: '+JSON.stringify(item)+'\n\n')
+    for(const item of (rawCursor ? this.recent(after,500) : this.latest(100)))res.write('id: '+item.id+'\ndata: '+JSON.stringify(item)+'\n\n')
     this.subscribers.add(res)
     const heartbeat=setInterval(()=>{if(!res.destroyed)res.write(': keepalive\n\n')},15000)
     heartbeat.unref()
