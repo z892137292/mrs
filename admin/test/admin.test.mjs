@@ -57,7 +57,7 @@ test('first-run bootstrap, password hashing, authorization, CSRF, fixation and p
         assert.equal((await f.request('/control',{action:'sh -c echo x'})).res.status,400)
         const snapshot=await f.request('/snapshot');assert.equal(snapshot.res.status,200);const text=JSON.stringify(snapshot.data)
         assert.ok(!text.includes('NEVER_EXPOSE') && !text.includes('alice@'))
-        assert.equal(snapshot.data.points.currentBalance,null);assert.match(snapshot.data.settings.nextScheduledAt,/Z$/)
+        assert.equal(snapshot.data.points.currentBalance,null);assert.equal(snapshot.data.settings.setup.usableAccountSlots,0);assert.ok(snapshot.data.settings.setup.issues.length>0);assert.match(snapshot.data.settings.nextScheduledAt,/Z$/)
         assert.equal(snapshot.data.settings.timezone,'Asia/Shanghai')
         await close(f.w.server);await f.web.close()
         f.web=createWeb(f.env,{background:false});f.w=await listen(f.web.app)
