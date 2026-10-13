@@ -48,11 +48,22 @@ export function createAgent(env = process.env) {
         let next = null, scheduleError = null
         try { next = CronExpressionParser.parse(env.CRON_SCHEDULE || '', { tz: env.TZ || 'UTC' }).next().toISOString() } catch { scheduleError = '定时计划或时区无效' }
         const configuration=accountStore.read(), applied=jsonFile(path.join(state,'account-applied.json'))
+        const sessionReceipts=jsonFile(path.join(env.CONTROL_DATA_DIR || path.join(dir,'control-data'),'verified-sessions.json'))
+        const sessionEvents=new Map(),sessionStates={'session.login.started':'manual_verification','session.auth.required':'manual_verification','session.restricted':'restricted','session.login.failed':'login_failed','session.verified':'session_verified_history'}
+        for(const e of journal.recent())if(e.accountId&&sessionStates[e.kind]&&!sessionEvents.has(e.accountId))sessionEvents.set(e.accountId,e)
         const accounts = configuration.accounts.map(a => {
             const email = String(a.email || '').trim(), same=applied.revision===configuration.revision && applied.accounts?.some(x=>x.id===a.id && x.modifiedAt===a.modifiedAt)
             const r = (!configuration.revision || same) ? (Array.isArray(summary.accounts) ? summary.accounts : []).find(x => String(x.email).toLowerCase() === email.toLowerCase()) : null
             const login=same ? applied.login?.[a.id] : null
-            return { id:a.id, label:maskEmail(email), enabled:a.enabled, configured:isUsableEmail(email), placeholder:!isUsableEmail(email), passwordConfigured:!!a.password, proxyConfigured:!!a.proxyUrl, configurationState:!configuration.revision?'environment':same?'loaded':'saved_pending_run', configurationRevision:configuration.revision, loginState:login?.status || 'unverified', loginEvidence:login || null, result:r?.status || null, reportedPoints:number(r?.collectedPoints), pointsSource:'上游 last-summary.json 的 collectedPoints；并非已核验余额', exception:r?.error?redact(r.error):null, pauseReason:stop?redact(stop):null }
+            const receipt=Object.entries(sessionReceipts).filter(([key,r])=>[`${a.id}:mobile`,`${a.id}:desktop`].includes(key)&&r&&Number.isFinite(Date.parse(r.verifiedAt))&&Date.parse(r.verifiedAt)<=Date.now()).sort((x,y)=>Date.parse(y[1].verifiedAt)-Date.parse(x[1].verifiedAt))[0]
+            const lastSessionVerification=receipt?{platform:receipt[0].split(':')[1],verifiedAt:receipt[1].verifiedAt,availablePoints:Number.isFinite(receipt[1].availablePoints)?receipt[1].availablePoints:null,source:redact(String(receipt[1].source || '').slice(0,400)),configurationMatches:receipt[1].revision===configuration.revision,currentStatus:'历史核验记录；当前有效性需要重新实时核验'}:null
+            const evidence=[]
+            if(login)evidence.push({state:login.status,time:Date.parse(login.time)||0})
+            if(lastSessionVerification?.configurationMatches)evidence.push({state:'session_verified_history',time:Date.parse(lastSessionVerification.verifiedAt)})
+            const sessionEvent=sessionEvents.get(a.id)
+            if(sessionEvent)evidence.push({state:sessionEvent.kind==='session.verified'&&!lastSessionVerification?.configurationMatches?'unverified':sessionStates[sessionEvent.kind],time:Date.parse(sessionEvent.time)||0})
+            const loginState=evidence.sort((x,y)=>y.time-x.time)[0]?.state || 'unverified'
+            return { id:a.id, label:maskEmail(email), enabled:a.enabled, configured:isUsableEmail(email), placeholder:!isUsableEmail(email), passwordConfigured:!!a.password, proxyConfigured:!!a.proxyUrl, configurationState:!configuration.revision?'environment':same?'loaded':'saved_pending_run', configurationRevision:configuration.revision, loginState,lastSessionVerification, loginEvidence:login || null, result:r?.status || null, reportedPoints:number(r?.collectedPoints), pointsSource:'上游 last-summary.json 的 collectedPoints；并非已核验余额', exception:r?.error?redact(r.error):null, pauseReason:stop?redact(stop):null }
         })
         let runLog = ''
         try { runLog = fs.readdirSync(logs).filter(n => /^run-\d{8}-\d{6}-\d+\.log$/.test(n)).sort().at(-1) || '' } catch {}

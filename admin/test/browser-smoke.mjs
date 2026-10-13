@@ -53,6 +53,9 @@ try{
     await page.locator('#account-rows tr').filter({hasText:'r***'}).getByText('删除',{exact:true}).click()
     await page.waitForFunction(()=>!document.querySelector('#account-rows').textContent.includes('r***'))
     await page.locator('[data-page="tasks"]').click()
+    // Renderer fixture only: proves explicit account/stage/source and escaping, not online progress.
+    await page.evaluate(id=>renderLiveEvent({id:1000000001,time:new Date().toISOString(),accountId:id,stage:'pc_search',kind:'task.step.progress',result:'running',observedPoints:30,remainingPoints:120,password:'NEVER_EXPOSE_RENDERER'}),snapshot.accounts[0].id)
+    const timeline=await page.locator('#live-timeline').textContent();assert.match(timeline,/PC 搜索/);assert.match(timeline,/服务端配额积分已得 30/);assert.match(timeline,/不代表搜索次数/);assert.ok(!timeline.includes('NEVER_EXPOSE_RENDERER'))
     const pause=await page.evaluate(async()=>{const s=await(await fetch('/api/session')).json();return(await fetch('/api/control',{method:'POST',headers:{'content-type':'application/json','x-csrf-token':s.csrf},body:JSON.stringify({action:'pause'})})).status})
     assert.equal(pause,200)
     const pausedRun=await page.evaluate(async()=>{const s=await(await fetch('/api/session')).json();return(await fetch('/api/control',{method:'POST',headers:{'content-type':'application/json','x-csrf-token':s.csrf},body:JSON.stringify({action:'run'})})).status})

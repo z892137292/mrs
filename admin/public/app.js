@@ -4,6 +4,9 @@ const $=id=>document.getElementById(id)
 const names={dashboard:'控制台',accounts:'账号管理',tasks:'任务管理',logs:'日志中心',notifications:'消息通知',settings:'系统设置',audit:'审计记录',login:'登录交互',history:'执行历史',exceptions:'异常中心',recovery:'恢复中心'}
 const events={'task.started':'任务执行开始','task.completed':'任务已完成','task.failed':'任务失败','task.paused':'任务暂停','task.auth.required':'登录验证需人工核查',task_started:'任务开始',task_finished:'任务完成',task_failed:'任务失败',circuit_open:'连续失败熔断',risk_paused:'微软风控 / 限制',verification_required:'登录验证要求',account_paused:'账号暂停',configuration_applied:'账号配置保存',container_started:'容器启动',service_unavailable:'关键服务异常',service_recovered:'服务恢复',test:'测试通知'}
 const states={success:'成功',failed:'失败',risk_paused:'风险暂停',paused:'暂停',stopped:'已停止',ok:'成功',skipped_bot_warning:'风控停止',sent:'已发送',pending:'待发送',sending:'发送中',dropped:'队列丢弃',unknown:'未知'}
+Object.assign(states,{running:'运行中',completed:'已完成',suspect:'结果不确定，需核查',aborted:'人工中止',recovery_requested:'已预留恢复',restricted:'账号受限',waiting_manual:'等待人工验证',verified:'实时核验通过'})
+Object.assign(events,{'account.started':'账号开始执行','account.completed':'账号执行器返回成功','account.failed':'账号执行失败','task.step.started':'搜索阶段开始','task.step.completed':'服务端额度已完成','task.step.progress':'服务端额度观测','task.step.returned':'阶段返回，查看证据','session.auth.required':'登录等待人工验证','session.restricted':'登录遇到官方限制','session.verified':'会话实时核验通过','session.screenshot.ready':'人工操作已接受'})
+const stageNames={pc_search:'PC 搜索',mobile_search:'Mobile 搜索',other:'其他活动',login:'人工登录',account:'账号整体执行'}
 function toast(message){$('toast').textContent=message;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>{$('toast').hidden=true},6000)}
 async function api(url,body){const r=await fetch('/api'+url,{method:body?'POST':'GET',headers:body?{'content-type':'application/json','x-csrf-token':csrf}:{},body:body?JSON.stringify(body):undefined});const d=(r.headers.get('content-type')||'').includes('json')?await r.json():await r.text();if(!r.ok){if(r.status===401 && !url.startsWith('/login') && !url.startsWith('/risk-review'))await sessionState();throw new Error(d.error || '请求失败')}return d}
 function value(v){return v===null || v===undefined || v===''?'未知':String(v)}
@@ -18,7 +21,9 @@ function renderLiveEvent(e){
  if(seenLive.size>500)seenLive.delete(seenLive.values().next().value)
  const container=$('live-timeline'),row=document.createElement('div'),label=document.createElement('span'),time=document.createElement('small')
  row.className='event-row'
- label.textContent=(events[e.kind]||e.kind)+' · '+(states[e.result]||e.result||e.reason||'已记录')+(e.runId?' · '+e.runId:'')
+ const account=e.accountId?(accountConfig.find(a=>a.id===e.accountId)?.label || e.accountId):'系统/未定位账号'
+ const points=Number.isFinite(e.observedPoints)?' · 服务端配额积分已得 '+e.observedPoints+'，剩余 '+value(e.remainingPoints)+'（不代表搜索次数）':''
+ label.textContent=account+' · '+(stageNames[e.stage]||'整体流程')+' · '+(events[e.kind]||e.kind)+' · '+(states[e.result]||e.result||e.reason||'已记录')+points+(e.runId?' · '+e.runId:'')
  time.textContent=datetime(e.time)
  row.append(label,time)
  if(container.textContent==='等待真实事件')container.replaceChildren()
@@ -86,7 +91,7 @@ $('test-notification').onclick=async()=>{try{await api('/notifications/test',{})
 sessionState().then(async s=>{if(s.authenticated)await startLiveEvents();await refresh()}).catch(e=>toast(e.message));setInterval(refresh,5000)
 
 let accountRevision=0,editingId=null,accountConfig=[]
-const loginNames={unverified:'登录未验证',login_success:'最近登录成功（程序日志证据）',login_failed:'最近登录失败',manual_verification:'需要人工验证',restricted:'账号受限'}
+const loginNames={unverified:'登录未验证',login_success:'最近登录成功（程序日志证据）',login_failed:'最近登录失败',manual_verification:'需要人工验证',restricted:'账号受限',session_verified_history:'近期会话核验通过（历史记录，当前仍需实时核验）'}
 async function accountRows(accounts){
  const c=await api('/accounts');accountRevision=c.revision;accountConfig=c.accounts
  const el=$('account-rows');el.replaceChildren()

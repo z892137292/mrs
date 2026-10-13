@@ -68,6 +68,15 @@ test('recovery refuses changed config, unverified sessions, uncertain steps, STO
   f.agent.ledger.db.prepare("UPDATE runs SET state='recovery_requested' WHERE id='unchecked'").run();assert.equal((await f.request('/tasks/recovery',{id:'unchecked'})).data.reason,'run_not_recoverable')
  }finally{await f.cleanup()}
 })
+test('account views expose only historical verification evidence, redact identity/hash and invalidate changed configuration',async()=>{
+ const f=await fixture()
+ try{await f.login();const id=f.agent.snapshot().accounts[0].id
+  fs.writeFileSync(path.join(f.env.CONTROL_DATA_DIR,'verified-sessions.json'),JSON.stringify({[`${id}:mobile`]:{revision:0,verifiedAt:new Date().toISOString(),availablePoints:123,identity:'NEVER_EXPOSE_VERIFY_IDENTITY',storageHash:'NEVER_EXPOSE_VERIFY_HASH',source:'Offline verification fixture'}}),{mode:0o600})
+  const first=(await f.request('/snapshot')).data.accounts[0];assert.equal(first.loginState,'session_verified_history');assert.match(first.lastSessionVerification.currentStatus,/历史/);assert.ok(!JSON.stringify(first).includes('NEVER_EXPOSE'))
+  const changed=await f.request('/accounts',{action:'save',id,revision:0,values:{password:'ChangedFixturePassword123',clearSecrets:['totpSecret']}});assert.equal(changed.res.status,200)
+  const after=(await f.request('/snapshot')).data.accounts[0];assert.equal(after.loginState,'unverified');assert.equal(after.lastSessionVerification.configurationMatches,false)
+ }finally{await f.cleanup()}
+})
 test('proc reads and symbolic-link log reads do not produce false status or leak files',t=>{
     if (!readFile(`/proc/${process.pid}/cmdline`).length && !process.env.CI) { t.skip('Local sandbox PID namespace does not match /proc; real Docker CI may not skip'); return }
     assert.ok(readFile(`/proc/${process.pid}/cmdline`).length>0)

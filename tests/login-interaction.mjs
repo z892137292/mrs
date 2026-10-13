@@ -68,6 +68,7 @@ try{
  const serialized=JSON.stringify(agent.journal.list());assert.ok(!serialized.includes('HUMAN_INPUT') && !serialized.includes('SYNTHETIC_ONLY') && !serialized.includes('image'))
  assert.ok(agent.journal.list().some(e=>e.kind==='risk_paused'))
  assert.ok(agent.journal.list().some(e=>e.kind==='verification_required'))
+ assert.equal(agent.snapshot().accounts.find(a=>a.id===id).loginState,'restricted')
  const current=JSON.parse(fs.readFileSync(path.join(env.CONTROL_DATA_DIR,'verified-sessions.json')));assert.ok(current[`${id}:mobile`].storageHash)
  // Real authenticated Web -> Core -> SAME native browser; Web restart retains owner/session.
  risk=false
@@ -86,6 +87,7 @@ try{
   assert.ok((await request('/session')).data.authenticated)
   assert.ok((await request('/login-interaction',{accountId:id,action:'frame'})).data.image.length>100)
   assert.equal((await request('/login-interaction',{accountId:id,action:'verify',input:{}})).data.state,'verified')
+  const accountView=(await request('/snapshot')).data.accounts.find(a=>a.id===id);assert.equal(accountView.loginState,'session_verified_history');assert.equal(accountView.lastSessionVerification.availablePoints,123);assert.ok(!JSON.stringify(accountView).includes('storageHash'));assert.match(accountView.lastSessionVerification.currentStatus,/历史/)
   const sessions=await request('/sessions');assert.equal(sessions.status,200);assert.ok(!JSON.stringify(sessions.data).includes('storageHash'));assert.match(sessions.data[0].currentStatus,/重新/)
   assert.equal((await request('/login-interaction',{accountId:id,action:'close'})).status,200)
   const review=await request('/risk-review',{password:'FixtureAdminPassword123'});assert.equal(review.status,200)
