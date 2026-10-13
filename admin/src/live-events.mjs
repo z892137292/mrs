@@ -1,3 +1,4 @@
+import { redact } from './security.mjs'
 // Phase 1: durable Core journal -> one Web subscriber -> authenticated browser SSE.
 // This stream only publishes persisted evidence. It never manufactures search counts.
 export function streamCoreEvents(journal, req, res, {intervalMs=750}={}) {
@@ -45,8 +46,8 @@ export class LiveEventHub {
        || typeof value.time!=='string' || value.kind.length>100)return false
     // Only well-formed, redacted journal fields are persisted; never forward arbitrary upstream payloads.
     const item={id:value.id,time:value.time,kind:value.kind,
-      result:String(value.result||'').slice(0,400),reason:String(value.reason||'').slice(0,400),
-      runId:String(value.runId||'').slice(0,100)}
+      result:redact(String(value.result||'').slice(0,400)),reason:redact(String(value.reason||'').slice(0,400)),
+      runId:redact(String(value.runId||'').slice(0,100))}
     if(item.id<=this.cursor())return false
     this.store.db.prepare('INSERT OR IGNORE INTO live_events(id,time,kind,payload) VALUES(?,?,?,?)')
       .run(item.id,item.time,item.kind,JSON.stringify(item))
