@@ -116,7 +116,7 @@ export function createWeb(env=process.env, options={}) {
     })
     app.get('/api/audit',(_req,res)=>res.json(store.db.prepare('SELECT time,actor,action,result FROM audit ORDER BY id DESC LIMIT 200').all()))
     app.get('/api/events',(_req,res)=>res.json(store.db.prepare('SELECT time,kind,v FROM events ORDER BY time DESC LIMIT 100').all().map(x=>({...x,...JSON.parse(x.v),v:undefined}))))
-    app.get('/api/events/history',(req,res)=>res.json(liveHub.recent(/^\d+$/.test(String(req.query.after||''))?Number(req.query.after):0,100)))
+    app.get('/api/events/history',(req,res)=>res.json(/^\d+$/.test(String(req.query.after||''))?liveHub.recent(Number(req.query.after),100):liveHub.latest(100)))
     app.get('/api/events/live',(req,res)=>liveHub.subscribe(req,res))
     app.use('/api',(_req,res)=>res.status(404).json({error:'接口不存在'}))
     app.use(express.static(publicDirectory,{index:'index.html'}))
