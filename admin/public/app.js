@@ -32,7 +32,7 @@ async function startLiveEvents(){
  if(liveSource || $('shell').hidden)return
  const stream=new EventSource('/api/events/live')
  liveSource=stream
- stream.onopen=()=>{$('live-status').textContent='实时连接中'}
+ stream.onopen=()=>{$('live-status').textContent='实时连接中';refresh().catch(()=>{})}
  stream.onerror=()=>{$('live-status').textContent='连接中断，正在自动重连'}
  stream.onmessage=ev=>{
   try{renderLiveEvent(JSON.parse(ev.data))}catch{return}
