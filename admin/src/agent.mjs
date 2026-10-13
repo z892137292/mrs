@@ -4,6 +4,7 @@ import path from 'node:path'
 import { spawn, execFileSync } from 'node:child_process'
 import { CronExpressionParser } from 'cron-parser'
 import { Journal } from './journal.mjs'
+import { streamCoreEvents } from './live-events.mjs'
 import { equal, redact, maskEmail, httpError } from './security.mjs'
 import { runtimeReadiness, isUsableEmail } from './readiness.mjs'
 import { Accounts } from './accounts.mjs'
@@ -77,6 +78,7 @@ export function createAgent(env = process.env) {
         }catch(e){next(e)}finally{mutating=false}
     })
     app.get('/events', (req,res) => res.json(journal.list(/^\d+$/.test(req.query.after || '') ? Number(req.query.after) : 0)))
+    app.get('/events/stream', (req,res) => streamCoreEvents(journal,req,res))
     app.get('/logs', (req,res) => {
         const date = String(req.query.date || '')
         if (date && !/^\d{8}$/.test(date)) throw httpError(400,'日期格式错误')
