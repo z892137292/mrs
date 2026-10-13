@@ -5,6 +5,7 @@ import { spawn, execFileSync } from 'node:child_process'
 import { CronExpressionParser } from 'cron-parser'
 import { Journal } from './journal.mjs'
 import { equal, redact, accountId, httpError } from './security.mjs'
+import { runtimeReadiness, isUsableEmail } from './readiness.mjs'
 const number = v => Number.isFinite(Number(v)) ? Number(v) : null
 export function readFile(file, limit = 262144) {
     let fd
@@ -20,6 +21,7 @@ export function readFile(file, limit = 262144) {
 function jsonFile(file) { try { return JSON.parse(readFile(file)) } catch { return {} } }
 export function createAgent(env = process.env) {
     if ((env.CONTROL_API_TOKEN || '').length < 32) throw new Error('CONTROL_API_TOKEN must contain at least 32 characters')
+    const environmentLoadedAt = new Date().toISOString()
     const app = express(), dir = env.APP_DIR || '/usr/src/microsoft-rewards-script'
     const state = env.STATE_DIR || path.join(dir, 'state'), logs = env.LOG_DIR || path.join(dir, 'logs')
     const journal = new Journal(env.CONTROL_DATA_DIR || path.join(dir, 'control-data'))
@@ -38,8 +40,8 @@ export function createAgent(env = process.env) {
         let next = null, scheduleError = null
         try { next = CronExpressionParser.parse(env.CRON_SCHEDULE || '', { tz: env.TZ || 'UTC' }).next().toISOString() } catch { scheduleError = '定时计划或时区无效' }
         const accounts = Object.keys(env).filter(k => /^ACCOUNT_[1-9]\d*_EMAIL$/.test(k)).sort((a,b) => Number(a.split('_')[1])-Number(b.split('_')[1])).map(k => {
-            const email = env[k], r = (Array.isArray(summary.accounts) ? summary.accounts : []).find(x => String(x.email).toLowerCase() === email.toLowerCase())
-            return { id: accountId(email), label: redact(email), configured: !!email, passwordConfigured: !!env[k.replace('_EMAIL','_PASSWORD')], proxyConfigured: !!env[k.replace('_EMAIL','_PROXY_URL')], result: r?.status || null, reportedPoints: number(r?.collectedPoints), pointsSource: '上游 last-summary.json 的 collectedPoints；并非已核验余额', exception: r?.error ? redact(r.error) : null, pauseReason: stop ? redact(stop) : null }
+            const email = String(env[k] || '').trim(), r = (Array.isArray(summary.accounts) ? summary.accounts : []).find(x => String(x.email).toLowerCase() === email.toLowerCase())
+            return { id: accountId(email), label: redact(email), configured: isUsableEmail(email), placeholder: !isUsableEmail(email), passwordConfigured: !!env[k.replace('_EMAIL','_PASSWORD')], proxyConfigured: !!env[k.replace('_EMAIL','_PROXY_URL')], result: r?.status || null, reportedPoints: number(r?.collectedPoints), pointsSource: '上游 last-summary.json 的 collectedPoints；并非已核验余额', exception: r?.error ? redact(r.error) : null, pauseReason: stop ? redact(stop) : null }
         })
         let runLog = ''
         try { runLog = fs.readdirSync(logs).filter(n => /^run-\d{8}-\d{6}-\d+\.log$/.test(n)).sort().at(-1) || '' } catch {}
@@ -49,7 +51,7 @@ export function createAgent(env = process.env) {
         const started = /Run \d{8}-\d{6}-\d+ started/.test(log) ? /\[([^\]]+)\]/.exec(log)?.[1] : null
         const durations = [...log.matchAll(/Bot exited with code \d+ after (\d+)s/g)].map(m => Number(m[1]))
         const last = { finishedAt: status.finishedAt || null, result: status.result || null, exitCode: number(status.exitCode), attempts: number(status.attempts), trigger: ['schedule','startup','manual'].includes(status.trigger) ? status.trigger : null }
-        return { observedAt: new Date().toISOString(), version: env.MRS_VERSION || 'unknown', commit: env.MRS_COMMIT || 'unknown', upstreamCommit: 'd0f07d74a0ed4dda127855d6e3dde98bf4c89d6e', imageVersion: env.MRS_VERSION || 'unknown', dockerStatus: '控制服务可达；未访问 Docker Engine', uid: process.getuid(), active, elapsedSeconds, verification, paused: fs.existsSync(path.join(state, 'STOP')), risk, pauseReason: redact(stop), failures: number(readFile(path.join(state,'consecutive-failures')).trim() || 0), last, startedAt: started, reportedAttemptSeconds: durations.length ? durations.reduce((a,b)=>a+b,0) : null, durationSource: '任务日志中的各次 Bot 运行耗时之和，不含等待/重试延迟', points: { currentBalance: null, reportedChange: active ? null : number(summary.totalCollectedPoints), source: '上游累计运行摘要；非独立核验余额，崩溃未报告部分未知' }, accounts, health: { schedulerProcesses: scheduler, chromiumProcesses: pids('chrome-headless-shell'), note: '浏览器无任务时没有进程属于正常；未执行真实账号探测' }, settings: { schedule: env.CRON_SCHEDULE || '', timezone: env.TZ || 'UTC', nextScheduledAt: next, scheduleError, logRetentionDays: number(env.LOG_RETENTION_DAYS || 14), validation: { valid: !scheduleError, errors: scheduleError ? [scheduleError] : [] }, directories: ['config','sessions','state','logs','diagnostics'].map(n => ({ name: n, readable: fs.existsSync(path.join(dir,n)) })) } }
+        return { observedAt: new Date().toISOString(), version: env.MRS_VERSION || 'unknown', commit: env.MRS_COMMIT || 'unknown', upstreamCommit: 'd0f07d74a0ed4dda127855d6e3dde98bf4c89d6e', imageVersion: env.MRS_VERSION || 'unknown', dockerStatus: '控制服务可达；未访问 Docker Engine', uid: process.getuid(), active, elapsedSeconds, verification, paused: fs.existsSync(path.join(state, 'STOP')), risk, pauseReason: redact(stop), failures: number(readFile(path.join(state,'consecutive-failures')).trim() || 0), last, startedAt: started, reportedAttemptSeconds: durations.length ? durations.reduce((a,b)=>a+b,0) : null, durationSource: '任务日志中的各次 Bot 运行耗时之和，不含等待/重试延迟', points: { currentBalance: null, reportedChange: active ? null : number(summary.totalCollectedPoints), source: '上游累计运行摘要；非独立核验余额，崩溃未报告部分未知' }, accounts, health: { schedulerProcesses: scheduler, chromiumProcesses: pids('chrome-headless-shell'), note: '浏览器无任务时没有进程属于正常；未执行真实账号探测' }, settings: { setup: {...runtimeReadiness(env), envLoadedAt: environmentLoadedAt}, schedule: env.CRON_SCHEDULE || '', timezone: env.TZ || 'UTC', nextScheduledAt: next, scheduleError, logRetentionDays: number(env.LOG_RETENTION_DAYS || 14), validation: { valid: !scheduleError, errors: scheduleError ? [scheduleError] : [] }, directories: ['config','sessions','state','logs','diagnostics'].map(n => ({ name: n, readable: fs.existsSync(path.join(dir,n)) })) } }
     }
     app.disable('x-powered-by'); app.use(express.json({ limit: '8kb' }))
     app.use((req,res,next) => equal(req.headers.authorization, `Bearer ${env.CONTROL_API_TOKEN}`) ? next() : res.status(401).json({ error: '未授权' }))
