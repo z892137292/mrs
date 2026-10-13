@@ -1,6 +1,6 @@
 import nodemailer from 'nodemailer'
 import { redact, httpError, token } from './security.mjs'
-export const eventKinds = ['task_started','task_finished','task_failed','circuit_open','risk_paused','verification_required','account_paused','container_started','service_unavailable','service_recovered','test']
+export const eventKinds = ['task_started','task_finished','task_failed','circuit_open','risk_paused','verification_required','account_paused','configuration_applied','container_started','service_unavailable','service_recovered','test']
 const important = new Set(['risk_paused','verification_required','account_paused','circuit_open','service_unavailable'])
 const defaults = { telegram:{enabled:false,chatId:'',token:'',events:eventKinds}, smtp:{enabled:false,host:'',port:587,secure:false,username:'',password:'',from:'',to:'',events:eventKinds} }
 export function configPublic(config) {

@@ -28,7 +28,7 @@ export function createWeb(env=process.env, options={}) {
     if(env.WEB_TRUST_PROXY==='true')app.set('trust proxy',1)
     app.use(helmet({contentSecurityPolicy:{directives:{defaultSrc:["'self'"],scriptSrc:["'self'"],styleSrc:["'self'"],connectSrc:["'self'"],imgSrc:["'self'"],objectSrc:["'none'"],frameAncestors:["'none'"],upgradeInsecureRequests:secure?[]:null}},strictTransportSecurity:secure?undefined:false}))
     app.use(express.json({limit:'16kb'}))
-    app.get('/healthz',(_req,res)=>res.json({healthy:true,uid:process.getuid(),version:env.MRS_VERSION || '1.1.0-rc.3'}))
+    app.get('/healthz',(_req,res)=>res.json({healthy:true,uid:process.getuid(),version:env.MRS_VERSION || '1.1.0-rc.4'}))
     app.use(session({name:'mrs.sid',secret:store.get('sessionSecret'),resave:false,saveUninitialized:false,store:new SqliteSessionStore(store),cookie:{httpOnly:true,sameSite:'strict',secure,maxAge:8*3600000}}))
     app.use('/api',(_req,res,next)=>{res.set('Cache-Control','no-store');next()})
     app.get('/api/session',(req,res)=>{
@@ -75,6 +75,11 @@ export function createWeb(env=process.env, options={}) {
         res.type('text/plain').send(text)
     })
     const mutationLimit=rateLimit({windowMs:60000,limit:30,standardHeaders:'draft-8',legacyHeaders:false})
+    app.get('/api/accounts',async(_req,res)=>res.json(await agent('/accounts')))
+    app.post('/api/accounts',mutationLimit,async(req,res)=>{
+        store.audit('admin','account_configuration','请求')
+        try{const data=await agent('/accounts',req.body);store.audit('admin','account_configuration',`已保存 revision ${data.revision}`);res.json(data)}catch(e){store.audit('admin','account_configuration','拒绝/失败，未确认保存');throw e}
+    })
     app.post('/api/control',mutationLimit,async(req,res)=>{
         const action=req.body.action
         if(!['run','stop','pause','resume'].includes(action))throw httpError(400,'操作不允许')

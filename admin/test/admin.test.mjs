@@ -158,3 +158,33 @@ test('a broken event endpoint cannot alternate recovered/unavailable notificatio
         assert.equal(fs.readFileSync(f.env.FAKE_CALLS,'utf8'),'')
     }finally{await f.cleanup()}
 })
+test('account CRUD uses authorized CSRF API, durable private config, revisions and same flock; never implies login',async()=>{
+    const f=await fixture()
+    try{
+        assert.equal((await f.request('/accounts')).res.status,401);await f.login()
+        f.env.ACCOUNT_1_TOTP_SECRET='JBSWY3DPEHPK3PXP'
+        const initial=(await f.request('/accounts')).data;assert.equal(initial.revision,0)
+        const input={action:'save',revision:0,values:{email:'new@example.invalid',password:'PRIVATEPASS',totpSecret:'JBSWY3DPEHPK3PXP',proxyUrl:'http://proxy.invalid',proxyPort:8080,proxyUsername:'PRIVATEUSER',proxyPassword:'PRIVATEPROXY'}}
+        assert.equal((await f.request('/accounts',input,{csrfOverride:'wrong'})).res.status,403)
+        const saved=await f.request('/accounts',input);assert.equal(saved.res.status,200);assert.equal(saved.data.revision,1)
+        const a=saved.data.accounts.find(x=>x.label.startsWith('n***'));assert.ok(a)
+        for(const v of ['PRIVATEPASS','JBSWY3DPEHPK3PXP','PRIVATEUSER','PRIVATEPROXY','new@'])assert.ok(!JSON.stringify(saved.data).includes(v))
+        let snapshot=(await f.request('/snapshot')).data;const s=snapshot.accounts.find(x=>x.id===a.id);assert.equal(s.loginState,'unverified');assert.equal(s.configurationState,'saved_pending_run')
+        assert.equal(snapshot.settings.setup.accountConfigurationRevision,1)
+        assert.equal((await f.request('/accounts',input)).res.status,409)
+        const file=path.join(f.env.CONTROL_DATA_DIR,'accounts.json'),original=fs.readFileSync(file)
+        assert.equal((await f.request('/accounts',{action:'save',revision:1,id:a.id,values:{proxyUrl:'http://evil:SECRET@proxy.invalid'}})).res.status,400)
+        assert.deepEqual(fs.readFileSync(file),original);assert.equal(fs.statSync(file).mode&0o777,0o600)
+        const lock=spawn('/usr/bin/flock',[path.join(f.env.STATE_DIR,'run.lock'),'bash','-c','echo locked; sleep 2'],{stdio:['ignore','pipe','ignore']});await new Promise(r=>lock.stdout.once('data',r))
+        assert.equal((await f.request('/accounts',{action:'delete',revision:1,id:a.id})).res.status,409);await new Promise(r=>lock.once('exit',r))
+        const edit=await f.request('/accounts',{action:'save',revision:1,id:a.id,values:{enabled:false,password:''}});assert.equal(edit.res.status,200)
+        const raw=JSON.parse(fs.readFileSync(file));assert.equal(raw.accounts.find(x=>x.id===a.id).password,'PRIVATEPASS')
+        fs.writeFileSync(path.join(f.env.STATE_DIR,'STOP'),'Microsoft risk - manual review')
+        assert.equal((await f.request('/accounts',{action:'save',revision:2,id:a.id,values:{enabled:true}})).res.status,200)
+        assert.equal((await f.request('/control',{action:'run'})).res.status,409);assert.match(fs.readFileSync(path.join(f.env.STATE_DIR,'STOP'),'utf8'),/Microsoft risk/)
+        const removed=await f.request('/accounts',{action:'delete',revision:3,id:a.id});assert.equal(removed.res.status,200);assert.equal(removed.data.accounts.length,1)
+        const sessions=path.join(f.env.APP_DIR,'sessions','keep');fs.writeFileSync(sessions,'KEEP')
+        const reopened=createAgent(f.env);assert.equal(reopened.snapshot().accounts.length,1);reopened.close();assert.equal(fs.readFileSync(sessions,'utf8'),'KEEP')
+        const audit=JSON.stringify((await f.request('/audit')).data);assert.ok(audit.includes('account_configuration'));assert.ok(!audit.includes('PRIVATE'))
+    }finally{await f.cleanup()}
+})

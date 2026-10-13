@@ -57,6 +57,7 @@ done
 test "$(docker exec "$WEB" id -u)" = 1000
 test "$(docker exec "$REWARDS" rewards-ctl selftest | tail -n 1)" = 'selftest: all checks passed'
 docker exec -u 1000:1000 "$REWARDS" node /audit-project/admin/test/browser-smoke.mjs >"$OUT/browser-ui.log" 2>&1
+docker exec -u 1000:1000 "$REWARDS" node /audit-project/tests/managed-accounts.mjs >"$OUT/managed-accounts.log" 2>&1
 docker cp "$REWARDS:/tmp/mrs-admin-mobile.png" "$OUT/mobile.png" >/dev/null
 docker cp "$REWARDS:/tmp/mrs-admin-desktop.png" "$OUT/desktop.png" >/dev/null
 docker stop -t 20 "$WEB" >/dev/null
@@ -107,4 +108,11 @@ for ((i=0;i<30;i++)); do
 done
 docker exec "$REWARDS" rewards-healthcheck
 docker exec -u 1000:1000 "$REWARDS" node -e 'fetch("http://rewards:8090/snapshot",{headers:{authorization:"Bearer "+process.env.CONTROL_API_TOKEN}}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))'
+docker exec -u 1000:1000 "$REWARDS" node --input-type=module -e '
+    import assert from "node:assert/strict";import fs from "node:fs";
+    const r=await fetch("http://rewards:8090/accounts",{headers:{authorization:"Bearer "+process.env.CONTROL_API_TOKEN}});const c=await r.json();
+    const a=c.accounts.find(x=>x.label.startsWith("m***"));assert.ok(a);assert.equal(a.enabled,false);
+    const raw=JSON.parse(fs.readFileSync(process.env.APP_DIR+"/control-data/accounts.json"));assert.equal(raw.accounts.find(x=>x.id===a.id).password,"SyntheticChangedSecret123");
+    assert.equal(fs.readFileSync(process.env.APP_DIR+"/sessions/managed-preserve-test","utf8"),"OFFLINE_SYNTHETIC_SESSION");
+    console.log("PASS: actual rewards restart preserved managed account edit/disable and private credential");' >"$OUT/account-restart.log"
 printf 'PASS: real amd64 rewards + non-root Web, Chromium UI, Compose, persistence, independent Web stop, rewards stop/restart\n' >"$OUT/result.txt"

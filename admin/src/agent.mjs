@@ -4,8 +4,10 @@ import path from 'node:path'
 import { spawn, execFileSync } from 'node:child_process'
 import { CronExpressionParser } from 'cron-parser'
 import { Journal } from './journal.mjs'
-import { equal, redact, accountId, httpError } from './security.mjs'
+import { equal, redact, httpError } from './security.mjs'
 import { runtimeReadiness, isUsableEmail } from './readiness.mjs'
+import { Accounts } from './accounts.mjs'
+import { fileURLToPath } from 'node:url'
 const number = v => Number.isFinite(Number(v)) ? Number(v) : null
 export function readFile(file, limit = 262144) {
     let fd
@@ -25,6 +27,7 @@ export function createAgent(env = process.env) {
     const app = express(), dir = env.APP_DIR || '/usr/src/microsoft-rewards-script'
     const state = env.STATE_DIR || path.join(dir, 'state'), logs = env.LOG_DIR || path.join(dir, 'logs')
     const journal = new Journal(env.CONTROL_DATA_DIR || path.join(dir, 'control-data'))
+    const accountStore = new Accounts(env)
     let launching = false, mutating = false
     const ctl = env.CTL_PATH || '/usr/local/bin/rewards-ctl'
     const processMatches = (pid, marker) => /^\d+$/.test(String(pid)) && readFile(`/proc/${pid}/cmdline`, 4096).includes(marker)
@@ -39,9 +42,12 @@ export function createAgent(env = process.env) {
         const scheduler = pids('supercronic')
         let next = null, scheduleError = null
         try { next = CronExpressionParser.parse(env.CRON_SCHEDULE || '', { tz: env.TZ || 'UTC' }).next().toISOString() } catch { scheduleError = '定时计划或时区无效' }
-        const accounts = Object.keys(env).filter(k => /^ACCOUNT_[1-9]\d*_EMAIL$/.test(k)).sort((a,b) => Number(a.split('_')[1])-Number(b.split('_')[1])).map(k => {
-            const email = String(env[k] || '').trim(), r = (Array.isArray(summary.accounts) ? summary.accounts : []).find(x => String(x.email).toLowerCase() === email.toLowerCase())
-            return { id: accountId(email), label: redact(email), configured: isUsableEmail(email), placeholder: !isUsableEmail(email), passwordConfigured: !!env[k.replace('_EMAIL','_PASSWORD')], proxyConfigured: !!env[k.replace('_EMAIL','_PROXY_URL')], result: r?.status || null, reportedPoints: number(r?.collectedPoints), pointsSource: '上游 last-summary.json 的 collectedPoints；并非已核验余额', exception: r?.error ? redact(r.error) : null, pauseReason: stop ? redact(stop) : null }
+        const configuration=accountStore.read(), applied=jsonFile(path.join(state,'account-applied.json'))
+        const accounts = configuration.accounts.map(a => {
+            const email = String(a.email || '').trim(), same=applied.revision===configuration.revision && applied.accounts?.some(x=>x.id===a.id && x.modifiedAt===a.modifiedAt)
+            const r = (!configuration.revision || same) ? (Array.isArray(summary.accounts) ? summary.accounts : []).find(x => String(x.email).toLowerCase() === email.toLowerCase()) : null
+            const login=same ? applied.login?.[a.id] : null
+            return { id:a.id, label:redact(email), enabled:a.enabled, configured:isUsableEmail(email), placeholder:!isUsableEmail(email), passwordConfigured:!!a.password, proxyConfigured:!!a.proxyUrl, configurationState:!configuration.revision?'environment':same?'loaded':'saved_pending_run', configurationRevision:configuration.revision, loginState:login?.status || 'unverified', loginEvidence:login || null, result:r?.status || null, reportedPoints:number(r?.collectedPoints), pointsSource:'上游 last-summary.json 的 collectedPoints；并非已核验余额', exception:r?.error?redact(r.error):null, pauseReason:stop?redact(stop):null }
         })
         let runLog = ''
         try { runLog = fs.readdirSync(logs).filter(n => /^run-\d{8}-\d{6}-\d+\.log$/.test(n)).sort().at(-1) || '' } catch {}
@@ -51,11 +57,25 @@ export function createAgent(env = process.env) {
         const started = /Run \d{8}-\d{6}-\d+ started/.test(log) ? /\[([^\]]+)\]/.exec(log)?.[1] : null
         const durations = [...log.matchAll(/Bot exited with code \d+ after (\d+)s/g)].map(m => Number(m[1]))
         const last = { finishedAt: status.finishedAt || null, result: status.result || null, exitCode: number(status.exitCode), attempts: number(status.attempts), trigger: ['schedule','startup','manual'].includes(status.trigger) ? status.trigger : null }
-        return { observedAt: new Date().toISOString(), version: env.MRS_VERSION || 'unknown', commit: env.MRS_COMMIT || 'unknown', upstreamCommit: 'd0f07d74a0ed4dda127855d6e3dde98bf4c89d6e', imageVersion: env.MRS_VERSION || 'unknown', dockerStatus: '控制服务可达；未访问 Docker Engine', uid: process.getuid(), active, elapsedSeconds, verification, paused: fs.existsSync(path.join(state, 'STOP')), risk, pauseReason: redact(stop), failures: number(readFile(path.join(state,'consecutive-failures')).trim() || 0), last, startedAt: started, reportedAttemptSeconds: durations.length ? durations.reduce((a,b)=>a+b,0) : null, durationSource: '任务日志中的各次 Bot 运行耗时之和，不含等待/重试延迟', points: { currentBalance: null, reportedChange: active ? null : number(summary.totalCollectedPoints), source: '上游累计运行摘要；非独立核验余额，崩溃未报告部分未知' }, accounts, health: { schedulerProcesses: scheduler, chromiumProcesses: pids('chrome-headless-shell'), note: '浏览器无任务时没有进程属于正常；未执行真实账号探测' }, settings: { setup: {...runtimeReadiness(env), envLoadedAt: environmentLoadedAt}, schedule: env.CRON_SCHEDULE || '', timezone: env.TZ || 'UTC', nextScheduledAt: next, scheduleError, logRetentionDays: number(env.LOG_RETENTION_DAYS || 14), validation: { valid: !scheduleError, errors: scheduleError ? [scheduleError] : [] }, directories: ['config','sessions','state','logs','diagnostics'].map(n => ({ name: n, readable: fs.existsSync(path.join(dir,n)) })) } }
+        const readinessEnv={...env}
+        if(configuration.revision){for(const k of Object.keys(readinessEnv))if(/^ACCOUNT_[1-9]\d*_/.test(k))delete readinessEnv[k];configuration.accounts.filter(a=>a.enabled).forEach((a,i)=>{readinessEnv[`ACCOUNT_${i+1}_EMAIL`]=a.email;readinessEnv[`ACCOUNT_${i+1}_PASSWORD`]=a.password})}
+        return { observedAt: new Date().toISOString(), version: env.MRS_VERSION || 'unknown', commit: env.MRS_COMMIT || 'unknown', upstreamCommit: 'd0f07d74a0ed4dda127855d6e3dde98bf4c89d6e', imageVersion: env.MRS_VERSION || 'unknown', dockerStatus: '控制服务可达；未访问 Docker Engine', uid: process.getuid(), active, elapsedSeconds, verification, paused: fs.existsSync(path.join(state, 'STOP')), risk, pauseReason: redact(stop), failures: number(readFile(path.join(state,'consecutive-failures')).trim() || 0), last, startedAt: started, reportedAttemptSeconds: durations.length ? durations.reduce((a,b)=>a+b,0) : null, durationSource: '任务日志中的各次 Bot 运行耗时之和，不含等待/重试延迟', points: { currentBalance: null, reportedChange: active ? null : number(summary.totalCollectedPoints), source: '上游累计运行摘要；非独立核验余额，崩溃未报告部分未知' }, accounts, health: { schedulerProcesses: scheduler, chromiumProcesses: pids('chrome-headless-shell'), note: '浏览器无任务时没有进程属于正常；未执行真实账号探测' }, settings: { setup: {...runtimeReadiness(readinessEnv), envLoadedAt: environmentLoadedAt, accountConfigurationRevision:configuration.revision, accountConfigurationSource:configuration.revision?"持久化账号配置":"启动环境变量", restartRequiredSettings:["CRON_SCHEDULE","TZ","PUID","PGID","CONFIG_*","HTTP_PROXY","HTTPS_PROXY"]}, schedule: env.CRON_SCHEDULE || '', timezone: env.TZ || 'UTC', nextScheduledAt: next, scheduleError, logRetentionDays: number(env.LOG_RETENTION_DAYS || 14), validation: { valid: !scheduleError, errors: scheduleError ? [scheduleError] : [] }, directories: ['config','sessions','state','logs','diagnostics'].map(n => ({ name: n, readable: fs.existsSync(path.join(dir,n)) })) } }
     }
     app.disable('x-powered-by'); app.use(express.json({ limit: '8kb' }))
     app.use((req,res,next) => equal(req.headers.authorization, `Bearer ${env.CONTROL_API_TOKEN}`) ? next() : res.status(401).json({ error: '未授权' }))
     app.get('/snapshot', (_req,res) => res.json(snapshot()))
+    app.get('/accounts',(_req,res)=>res.json(accountStore.public()))
+    app.post('/accounts',(req,res,next)=>{
+        try{
+            if(mutating || launching || snapshot().active)throw httpError(409,'任务或控制操作进行中，不能修改账号')
+            mutating=true
+            let data
+            try{data=JSON.parse(execFileSync('/usr/bin/flock',['-n',path.join(state,'run.lock'),process.execPath,fileURLToPath(new URL('./accounts.mjs',import.meta.url))],{env,input:JSON.stringify(req.body),timeout:10000,maxBuffer:262144,stdio:['pipe','pipe','ignore']}).toString())}
+            catch(e){let error;try{error=JSON.parse(String(e.stdout))}catch{};throw httpError(error?.status || 409,error?.error || '任务锁占用或配置保存失败；原配置未变')}
+            journal.add('configuration_applied',{result:'账号配置已保存，下一次任务加载',reason:`revision ${data.revision}`})
+            res.json({...data,message:'已原子保存；下次任务启动加载，登录尚未验证'})
+        }catch(e){next(e)}finally{mutating=false}
+    })
     app.get('/events', (req,res) => res.json(journal.list(/^\d+$/.test(req.query.after || '') ? Number(req.query.after) : 0)))
     app.get('/logs', (req,res) => {
         const date = String(req.query.date || '')
@@ -77,6 +97,7 @@ export function createAgent(env = process.env) {
             mutating = true
             const current = snapshot()
             if (action === 'run' && (current.active || current.paused)) throw httpError(409, current.paused ? '任务已暂停，不能运行' : '已有任务运行')
+            if(action==='run' && accountStore.read().revision && !current.accounts.some(a=>a.enabled))throw httpError(409,'没有启用账号')
             if (action === 'pause' && current.paused) return res.json({ accepted:true, message:'保留原暂停原因' })
             if (action.startsWith('resume') && current.active) throw httpError(409,'运行中不能恢复')
             if (action === 'resume' && current.risk) throw httpError(409,'风险暂停需要人工核查与二次确认')

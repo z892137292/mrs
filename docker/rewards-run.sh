@@ -47,7 +47,7 @@ require_uint RUN_TIMEOUT_SECONDS "$TIMEOUT_S"
 if [ -n "${REWARDS_RUN_CMD:-}" ]; then
     RUN_CMD=(bash -c "$REWARDS_RUN_CMD") # test hook
 else
-    RUN_CMD=(node "$APP_DIR/dist/index.js")
+    RUN_CMD=(node /opt/mrs-admin/src/account-launch.mjs)
 fi
 
 ensure_dirs
