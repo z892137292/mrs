@@ -13,4 +13,72 @@ const allowed=new Set(['rewards.bing.com','www.bing.com','login.live.com','login
 const fixtures=env.MRS_LOGIN_FIXTURE_URL && env.MRS_OFFLINE_TEST==='true'
 const permitted=url=>{try{const u=new URL(url);return fixtures?u.origin===new URL(env.MRS_LOGIN_FIXTURE_URL).origin:u.protocol==='https:'&&allowed.has(u.hostname)}catch{return false}}
 const emitted=new Set()
-const emit=(event)=>{if(event==='session.verified')emitted.delete('session.auth.reyó}í¢G§²ÚîÆ­yÔ°ÍÕÍÁ•Ðœ¤(€…ÍÍ•ÉÐ¹•ÅÕ…°¡°¹•Ð ÉÕ¸µÑÝ¼œ¤¹•Ù¥‘•¹”¹™¥¹¡àôùà¹ÍÑ…”ôôôµ½‰¥±•}Í•…É œ¤¹½‰Í•ÉÙ•°äÀ¤(€…ÍÍ•ÉÐ¹•ÅÕ…°¡°¹•Ð ÉÕ¸µÑÝ¼œ¤¹•Ù¥‘•¹”¹™¥¹¡àôùà¹ÍÑ…”ôôôµ½‰¥±•}Í•…É œ¤¹É•µ…¥¹¥¹œ°À¤(€°¹±½Í” ¤í°õ¹•Ü1•‘•È¡‘¥È¤í…ÍÍ•ÉÐ¹•ÅÕ…°¡°¹•Ð ÉÕ¸µ½¹”œ¤¹•Ù¥‘•¹”¹™¥¹¡àôùà¹ÍÑ…”ôôôÁ}Í•…É œ¤¹ÍÑ…Ñ”°ÍÕÍÁ•Ðœ¤(€½¹ÍÐ„õÍ¥¹…ÑÕÉ”¡í=9QI=1}A%}Q=-8èÁÉ¥Ù…Ñ”œ±5IM}YIM%=8èÉŒô±míÁ…ÍÍÝ½Éè=9õt±íô¤±ˆõÍ¥¹…ÑÕÉ”¡í=9QI=1}A%}Q=-8èÁÉ¥Ù…Ñ”œ±5IM}YIM%=8èÉŒô±míÁ…ÍÍÝ½ÉèQ]<õt±íô¤í…ÍÍ•ÉÐ¹¹½ÑÅÕ…°¡„±ˆ¤í…ÍÍ•ÉÐ¹½¬ …„¹¥¹±Õ‘•Ì =9œ¤¤(€…ÍÍ•ÉÐ¹•ÅÕ…°¡°¹ÁÉ•Á…É” ¹•Üµ…™Ñ•ÈµÕ¹•ÉÑ…¥¸œ¤±™…±Í”¤(€°¹…­¹½Ý±•‘” ¤í…ÍÍ•ÉÐ¹•ÅÕ…°¡°¹ÁÉ•Á…É” ¹•Üµ…™Ñ•Èµ¡Õµ…¸µÉ•Ù¥•Üœ¤±ÑÉÕ”¤í…ÍÍ•ÉÐ¹½¬¡°¹ÁÕ‰±¥Œ ÉÕ¸µ½¹”œ¤¹É•Ù¥•Ý•‘Ð¤(€°¹É•…Ñ” ¥¹Ñ•ÉÉÕÁÑ•µÉ•ÑÉäœ°Í¥¹…ÑÕÉ”œ°Ì°ÄÀÐ±l………………………………………„t¤í°¹•Ù•¹Ð ¥¹Ñ•ÉÉÕÁÑ•µÉ•ÑÉäœ°………………………………………„œ°Ñ…Í¬¹ÍÑ•À¹ÍÑ…ÉÑ•œ°Á}Í•…É œ¤í…ÍÍ•ÉÐ¹•ÅÕ…°¡°¹ÁÉ•Á…É” ¥¹Ñ•ÉÉÕÁÑ•µÉ•ÑÉäœ¤±™…±Í”¤(€…ÍÍ•ÉÐ¹•ÅÕ…°¡°¹ÁÉ•Á…É” ¹•áÐµ…™Ñ•ÈµÉ…Í œ¤±™…±Í”¤í°¹…­¹½Ý±•‘” ¤í…ÍÍ•ÉÐ¹•ÅÕ…°¡°¹ÁÉ•Á…É” ¹•áÐµ…™Ñ•ÈµÉ•Ù¥•Üœ¤±ÑÉÕ”¤(€°¹‘ˆ¹ÁÉ•Á…É” UAQÉÕ¹ÌMPÕÁ‘…Ñ•ôü]!I¥ôüœ¤¹ÉÕ¸ ¹•ÜµÍ¹…ÁÍ¡½Ðœ°ÉÕ¸µ½¹”œ¤í…ÍÍ•ÉÐ¹½¬¡°¹Õ¹É•Ù¥•Ý• ¤¹Í½µ”¡ÈôùÈ¹¥ôôôÉÕ¸µ½¹”œ¤¤(õ™¥¹…±±åí°¹±½Í” ¤í™Ì¹ÉµMå¹Œ¡‘¥È±íÉ•ÕÉÍ¥Ù”éÑÉÕ”±™½É”éÑÉÕ•ô¥ô)ô¤(
+const emit=(event)=>{if(event==='session.verified')emitted.delete('session.auth.required');if(event!=='session.screenshot.ready'){if(emitted.has(event))return;emitted.add(event)}process.send?.({event,state})}
+function pause(reason){const stop=path.join(env.STATE_DIR || path.join(dir,'state'),'STOP');try{fs.writeFileSync(stop,reason,{flag:'wx',mode:0o600})}catch(e){if(e.code!=='EEXIST')throw e}}
+async function close(){if(closed)return;closed=true;clearInterval(timer);const browser=context?.browser();await context?.close().catch(()=>{});await browser?.close().catch(()=>{});sessionStore?.closeSessionStore();process.exit(0)}
+let sessionStore,account,config,revision
+const timer=setInterval(()=>{if(Date.now()-last>10*60000 || Date.now()-created>30*60000)close()},10000);timer.unref()
+process.once('disconnect',close);process.once('SIGTERM',close);process.once('SIGINT',close)
+async function inspect(){
+ if(state==='restricted')throw httpError(409,'å¾®è½¯é£Žé™©/é™åˆ¶å·²åœæ­¢ï¼Œç¦æ­¢ç»§ç»­äº¤äº’')
+ if(page.isClosed())throw httpError(409,'æµè§ˆå™¨é¡µé¢å·²å…³é—­')
+ if(page.url()==='about:blank')throw httpError(409,'å®˜æ–¹æ–°çª—å£æ­£åœ¨åŠ è½½ï¼Œè¯·ç¨åŽåˆ·æ–°')
+ if(!permitted(page.url())){state='blocked_navigation';await close();throw httpError(409,'éžæŽˆæƒç™»å½•å¯¼èˆªå·²å…³é—­')}
+ const text=await page.locator('body').innerText({timeout:3000}).catch(()=>'')
+ if(/Fraud_UserWarning_BotScore_UX|ACCOUNT_LOCKED|account (?:has been |is )?(?:locked|suspended|restricted)|å¸æˆ·å·²é”å®š|è´¦æˆ·å·²é”å®š|è´¦å·å—é™/i.test(text)){state='restricted';pause('Microsoft restriction - manual review required');emit('session.restricted');throw httpError(409,'å¾®è½¯é£Žé™©/é™åˆ¶å·²åœæ­¢ï¼›éœ€è¦äººå·¥æ ¸æŸ¥')}
+ if(/captcha|verify your identity|Authenticator|éªŒè¯ç |éªŒè¯ä½ çš„èº«ä»½/i.test(text)){state='waiting_manual';emit('session.auth.required')}
+ else state='interactive'
+}
+async function verify(input){
+ await inspect()
+ if(state==='waiting_manual' || (!fixtures&&!['rewards.bing.com','www.bing.com'].includes(new URL(page.url()).hostname)))throw httpError(409,'å®˜æ–¹éªŒè¯ç æˆ–èº«ä»½éªŒè¯å°šæœªå®Œæˆï¼›ç»§ç»­ç­‰å¾…äººå·¥å¤„ç†ï¼Œä¸ä¿å­˜ä¸ºç™»å½•æˆåŠŸ')
+ const endpoint=fixtures?new URL('/userinfo',env.MRS_LOGIN_FIXTURE_URL).href:'https://rewards.bing.com/api/getuserinfo'
+ const response=await context.request.get(endpoint,{maxRedirects:0,timeout:15000});if(response.status()!==200){state='unverified';throw httpError(409,'ä¼šè¯å°šæœªé€šè¿‡æœåŠ¡ç«¯æ ¸éªŒï¼›è¯·ç»§ç»­äººå·¥ç™»å½•')}
+ const data=await response.json(),user=data?.dashboard?.userStatus
+ if(/Fraud_UserWarning_BotScore_UX|ACCOUNT_LOCKED/i.test(JSON.stringify(data))){pause('Microsoft risk - manual review required');state='restricted';emit('session.restricted');throw httpError(409,'æœåŠ¡ç«¯è¿”å›žé£Žé™©é™åˆ¶ï¼Œæœªä¿å­˜ä¸ºæœ‰æ•ˆä¼šè¯')}
+ if(!user?.isRewardsUser || typeof user.ePuid!=='string' || !user.ePuid || !Number.isFinite(user.availablePoints)){state='unverified';throw httpError(409,'æ²¡æœ‰å¯ä¿¡Rewardsä¼šè¯è¯æ®')}
+ let records={};try{records=privateRead(stateFile)}catch(e){if(e.code!=='ENOENT')throw e}
+ const identity=crypto.createHmac('sha256',env.CONTROL_API_TOKEN).update(user.ePuid).digest('hex'),key=`${account.id}:${env.INTERACTIVE_PLATFORM || 'mobile'}`
+ if(records[key]?.identity && records[key].identity!==identity)throw httpError(409,'æœåŠ¡ç«¯è´¦å·èº«ä»½ä¸Žå…ˆå‰ç»‘å®šä¸ç¬¦ï¼Œç¦æ­¢è¦†ç›–')
+ if(!records[key]?.identity && input?.identityConfirmed!==true)throw httpError(409,'å®˜æ–¹æŽ¥å£æœªæä¾›é‚®ç®±ï¼Œè¯·æ ¸å¯¹çœŸå®žé¡µé¢è´¦å·å¹¶æ˜Žç¡®äººå·¥ç¡®è®¤èº«ä»½ç»‘å®š')
+ const storage=await context.storageState();sessionStore.saveStorageState(config.sessionPath,account.email,env.INTERACTIVE_PLATFORM!=='desktop',storage)
+ records[key]={identity,storageHash:crypto.createHmac('sha256',env.CONTROL_API_TOKEN).update(JSON.stringify(storage)).digest('hex'),revision,verifiedAt:new Date().toISOString(),availablePoints:user.availablePoints,source:fixtures?'éš”ç¦»æœ¬åœ°fixtureå“åº”ï¼›ä¸æ˜¯å¾®è½¯è´¦å·éªŒæ”¶':'åŒä¸€Coreæµè§ˆå™¨cookieçš„å®˜æ–¹getuserinfoå®žæ—¶å“åº”ï¼›é¦–æ¬¡é‚®ç®±å½’å±žç”±äººå·¥ç¡®è®¤'};atomicPrivate(stateFile,records)
+ state='verified';emit('session.verified');return {state,verifiedAt:records[key].verifiedAt,availablePoints:user.availablePoints,source:records[key].source}
+}
+async function initialize(){
+ const managed=new Accounts(env),runtime=managed.runtime();account=runtime.accounts.find(a=>a.id===env.INTERACTIVE_ACCOUNT_ID);if(!account?.enabled)throw Error('Unknown/disabled account');revision=runtime.revision
+ pause('manual login session - verification requires manual review; no automatic task resume')
+ const load=require(path.join(dir,'dist/util/Load.js')),original=process.env;let loaded
+ try{process.env=runtime.env;loaded=load.loadAccounts().find(a=>a.email.trim().toLowerCase()===account.email.trim().toLowerCase());config=load.loadConfig()}finally{process.env=original}
+ if(!loaded)throw Error('Account not loaded');account.email=loaded.email;config.headless=true;config.proxy.ignoreCertificateErrors=false
+ sessionStore=require(path.join(dir,'dist/util/SessionStore.js'))
+ const Browser=require(path.join(dir,'dist/browser/Browser.js')).default,Util=require(path.join(dir,'dist/util/Utils.js')).default,{resolveAccountLocale}=require(path.join(dir,'dist/util/Locale.js'))
+ const logger={info(){},warn(){},error(){},debug(){}}
+ const bot={config,isMobile:env.INTERACTIVE_PLATFORM!=='desktop',logger,utils:new Util(),accountLocale:resolveAccountLocale(loaded)}
+ const session=await new Browser(bot).createBrowser(loaded);context=session.context;page=await context.newPage();await page.setViewportSize({width:1000,height:760})
+ context.on('page',p=>{page=p;cdp=null})
+ await page.goto(fixtures?env.MRS_LOGIN_FIXTURE_URL:'https://rewards.bing.com/auth/login',{waitUntil:'domcontentloaded',timeout:20000});state='interactive';emit('session.login.started')
+}
+const ready=initialize()
+process.on('message',async m=>{
+ if(busy){process.send?.({id:m.id,error:'æµè§ˆå™¨æ“ä½œæ­£åœ¨æ‰§è¡Œ',status:409});return}busy=true;last=Date.now()
+ try{await ready;let result
+  if(m.action==='close'){process.send?.({id:m.id,result:{closed:true}});await close();return}
+  if(m.action==='verify')result=await verify(m.input)
+  else if(m.action==='state')result={state,accountId:account.id,width:1000,height:760}
+  else{if(state==='restricted' || state==='verified')throw httpError(409,'å½“å‰é˜¶æ®µä¸å…è®¸æˆªå›¾æˆ–è¾“å…¥');await inspect();cdp ||= await context.newCDPSession(page)
+   if(m.action==='input'){
+    const i=m.input || {}
+    if(i.type==='click' && Number.isFinite(i.x)&&Number.isFinite(i.y)&&i.x>=0&&i.x<=1000&&i.y>=0&&i.y<=760){for(const type of ['mousePressed','mouseReleased'])await cdp.send('Input.dispatchMouseEvent',{type,x:i.x,y:i.y,button:'left',clickCount:1})}
+    else if(i.type==='type' && typeof i.text==='string' && i.text.length<=2048)await cdp.send('Input.insertText',{text:i.text})
+    else if(i.type==='key' && ['Enter','Tab','Backspace','Escape','ArrowDown','ArrowUp'].includes(i.key))await page.keyboard.press(i.key)
+    else if(i.type==='scroll' && Number.isFinite(i.deltaY)&&Math.abs(i.deltaY)<=800)await cdp.send('Input.dispatchMouseEvent',{type:'mouseWheel',x:500,y:380,deltaX:0,deltaY:i.deltaY})
+    else throw httpError(400,'è¾“å…¥ç±»åž‹æˆ–åæ ‡æ— æ•ˆ')
+    emit('session.screenshot.ready');result={accepted:true}
+   }else if(m.action==='frame'){const frame=await cdp.send('Page.captureScreenshot',{format:'jpeg',quality:65,captureBeyondViewport:false});result={state,width:1000,height:760,image:frame.data}}
+   else throw httpError(400,'ç™»å½•æ“ä½œä¸å…è®¸')
+  }
+  process.send?.({id:m.id,result})
+ }catch(e){process.send?.({id:m.id,error:e.status?e.message:'æµè§ˆå™¨æˆ–ä¼šè¯æ ¸éªŒå¤±è´¥ï¼Œæœªæ ‡è®°ç™»å½•æˆåŠŸ',status:e.status || 409})}finally{busy=false}
+})
+ready.catch(()=>{state='failed';emit('session.login.failed');setTimeout(close,1000)})

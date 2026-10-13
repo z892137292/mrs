@@ -25,5 +25,10 @@ test('durable ledger separates account completion, quota proof, suspect and inte
   assert.equal(l.get('run-two').evidence.find(x=>x.stage==='mobile_search').remaining,0)
   l.close();l=new Ledger(dir);assert.equal(l.get('run-one').evidence.find(x=>x.stage==='pc_search').state,'suspect')
   const a=signature({CONTROL_API_TOKEN:'private',MRS_VERSION:'rc'},[{password:'ONE'}],{}),b=signature({CONTROL_API_TOKEN:'private',MRS_VERSION:'rc'},[{password:'TWO'}],{});assert.notEqual(a,b);assert.ok(!a.includes('ONE'))
+  assert.equal(l.prepare('new-after-uncertain'),false)
+  l.acknowledge();assert.equal(l.prepare('new-after-human-review'),true);assert.ok(l.public('run-one').reviewedAt)
+  l.create('interrupted-retry','signature',3,104,['aaaaaaaaaaaaaaaa']);l.event('interrupted-retry','aaaaaaaaaaaaaaaa','task.step.started','pc_search');assert.equal(l.prepare('interrupted-retry'),false)
+  assert.equal(l.prepare('next-after-crash'),false);l.acknowledge();assert.equal(l.prepare('next-after-review'),true)
+  l.db.prepare('UPDATE runs SET updated=? WHERE id=?').run('new-snapshot','run-one');assert.ok(l.unreviewed().some(r=>r.id==='run-one'))
  }finally{l.close();fs.rmSync(dir,{recursive:true,force:true})}
 })
