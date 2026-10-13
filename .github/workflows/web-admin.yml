@@ -1,7 +1,7 @@
 name: Web admin real build and candidate release
 on:
   push:
-    branches: [feature/web-admin-notifications]
+    branches: [feature/web-admin-notifications, feature/web-phase1-event-stream]
   pull_request:
     branches: [main, feature/web-admin-notifications]
 permissions:
@@ -41,7 +41,7 @@ jobs:
   images:
     needs: checks
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 90
     permissions:
       contents: read
       packages: write
@@ -81,12 +81,12 @@ jobs:
             APP_COMMIT=${{ github.sha }}
           cache-from: type=gha,scope=web-ui
           cache-to: type=gha,scope=web-ui,mode=max
-      - name: Original real Chromium and lifecycle regression
-        env:
-          SOAK_SECONDS: '120'
-        run: bash tests/container.test.sh mrs-custom:web-ci test-results/core
       - name: Real two-container Web and Chromium UI tests
         run: bash tests/web-container.test.sh mrs-custom:web-ci mrs-web:ci test-results/web
+      - name: Original real Chromium and lifecycle regression
+        env:
+          SOAK_SECONDS: '3600'
+        run: bash tests/container.test.sh mrs-custom:web-ci test-results/core
       - name: Capture tested identities
         run: |
           docker image inspect --format '{{.Id}}' mrs-custom:web-ci > test-results/rewards-image-id.txt

@@ -1,6 +1,6 @@
 # 升级、备份和回滚
 
-旧 v1.0.3 镜像和原 NAS 始终保留。候选镜像使用独立版本标签（本轮候选 1.1.0-rc.4），不能改 old/latest。禁止自动覆盖旧 Git 标签、合并 main 或替换旧容器。
+旧 v1.0.3、rc.4 镜像和原 NAS 始终保留。本轮候选 1.1.0-rc.5 仅在实际发布门禁通过后可用，不能改 old/latest。禁止自动覆盖旧 Git 标签、合并 main 或替换旧容器。
 
 首次候选部署只用新项目和新数据。升级候选项目时先暂停并安全停止 rewards，停止 Web 后备份 Web SQLite 所在整个 web-data 和 control-data 卷（连同 WAL/SHM，在停机状态下），连同版本 digest 和私有 .env。原 scripts/backup-data.sh 只备份旧的业务目录，不包括新增 Web/控制卷，也不包含 .env；不要误以为它已保存通知凭证和管理员数据。
 

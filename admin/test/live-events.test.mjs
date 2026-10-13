@@ -8,6 +8,7 @@ import { Store } from '../src/store.mjs'
 import { LiveEventHub } from '../src/live-events.mjs'
 import { createAgent } from '../src/agent.mjs'
 import { token } from '../src/security.mjs'
+import express from 'express'
 
 async function eventually(fn){
   for(let attempt=0;attempt<80;attempt++){
@@ -107,4 +108,11 @@ test('single Web hub consumes Core SSE, persists events across restart and never
     agent.close()
     fs.rmSync(root,{recursive:true,force:true})
   }
+})
+test('browser replay drains more than 500 durable events, reports gaps, and projection excludes credentials',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'mrs-replay-')),store=new Store(root),hub=new LiveEventHub(store,{baseUrl:'http://127.0.0.1',token:token()}),app=express()
+ for(let id=1;id<=800;id++)hub.accept({id,time:new Date().toISOString(),kind:'task.step.progress',runId:'run',accountId:'aaaaaaaaaaaaaaaa',stage:'pc_search',observedPoints:id,remainingPoints:800-id,password:'NEVER_EXPOSE',cookie:'NEVER_EXPOSE'})
+ app.get('/live',(req,res)=>hub.subscribe(req,res));const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));const abort=new AbortController()
+ try{const response=await fetch(`http://127.0.0.1:${server.address().port}/live?after=1`,{signal:abort.signal}),reader=response.body.getReader();let text='';await eventually(async()=>{const x=await reader.read();text+=new TextDecoder().decode(x.value);return text.includes('id: 800\n')});assert.equal((text.match(/data: /g)||[]).length,799);assert.ok(!text.includes('NEVER_EXPOSE'));assert.ok(text.includes('aaaaaaaaaaaaaaaa'));assert.ok(!hub.accept({id:799,time:'now',kind:'duplicate'}));assert.equal(hub.cursor(),800)
+ }finally{abort.abort();await hub.stop();server.closeAllConnections();await new Promise(r=>server.close(r));store.close();fs.rmSync(root,{recursive:true,force:true})}
 })

@@ -69,6 +69,7 @@ try{
     await page.waitForFunction(()=>document.querySelector('#toast').textContent.includes('启用一个'))
     await page.locator('[data-page="settings"]').click()
     await page.waitForFunction(v=>document.querySelector('#system-details').textContent.includes(v),process.env.MRS_VERSION)
+    for(const section of ['login','recovery','exceptions','history']){await page.locator(`[data-page="${section}"]`).click();assert.equal(await page.locator(`#${section}`).isVisible(),true)}
     await page.setViewportSize({width:390,height:844})
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1),'mobile horizontal overflow')
     await page.screenshot({path:'/tmp/mrs-admin-mobile.png',fullPage:true})

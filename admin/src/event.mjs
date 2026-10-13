@@ -2,6 +2,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { Journal } from './journal.mjs'
+import { createRequire } from 'node:module'
+const {Ledger}=createRequire(import.meta.url)('./ledger.cjs')
 try {
     if (process.env.CONTROL_API_ENABLED === 'true') {
         const j = new Journal(process.env.CONTROL_DATA_DIR || '/usr/src/microsoft-rewards-script/control-data')
@@ -16,8 +18,9 @@ try {
         // No synthetic PC/mobile progress is emitted until search-level instrumentation exists.
         if(kind==='task_started')j.add('task.started',{runId,result:'running',accounts})
         if(kind==='task_finished'){
-            const finished={success:'task.completed',failed:'task.failed',risk_paused:'task.paused',stopped:'task.paused'}[result]
-            if(finished)j.add(finished,{runId,result,reason,accounts})
+            const ledger=new Ledger(process.env.CONTROL_DATA_DIR || '/usr/src/microsoft-rewards-script/control-data');ledger.finish(runId,result);const uncertain=ledger.get(runId)?.state==='suspect';ledger.close()
+            const finished=uncertain?'task.paused':{success:'task.completed',failed:'task.failed',risk_paused:'task.paused',stopped:'task.paused'}[result]
+            if(finished)j.add(finished,{runId,result:uncertain?'suspect':result,reason,accounts})
         }
         if(kind==='verification_required')j.add('task.auth.required',{runId,result:'waiting_manual_review',reason,accounts})
         j.close()

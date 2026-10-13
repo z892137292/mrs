@@ -58,6 +58,7 @@ test "$(docker exec "$WEB" id -u)" = 1000
 test "$(docker exec "$REWARDS" rewards-ctl selftest | tail -n 1)" = 'selftest: all checks passed'
 docker exec -u 1000:1000 "$REWARDS" node /audit-project/admin/test/browser-smoke.mjs >"$OUT/browser-ui.log" 2>&1
 docker exec -u 1000:1000 "$REWARDS" node /audit-project/tests/managed-accounts.mjs >"$OUT/managed-accounts.log" 2>&1
+docker exec -u 1000:1000 "$REWARDS" node /audit-project/tests/login-interaction.mjs >"$OUT/login-interaction.log" 2>&1
 docker cp "$REWARDS:/tmp/mrs-admin-mobile.png" "$OUT/mobile.png" >/dev/null
 docker cp "$REWARDS:/tmp/mrs-admin-desktop.png" "$OUT/desktop.png" >/dev/null
 docker stop -t 20 "$WEB" >/dev/null

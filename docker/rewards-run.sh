@@ -64,6 +64,7 @@ echo "$$" >"$RUN_PID_FILE"
 
 # ── Per-run log file (the logger must not inherit the lock fd) ──────────────
 RUN_ID="$(date '+%Y%m%d-%H%M%S')-$$"
+export MRS_RUN_ID="$RUN_ID" MRS_WRAPPER_PID="$$"
 RUN_LOG="$LOG_DIR/run-$RUN_ID.log"
 ATTEMPT_SUMMARY_FILE="$STATE_DIR/.attempt-summary-$RUN_ID.json"
 RISK_FILE="$STATE_DIR/.risk-$RUN_ID"

@@ -9,6 +9,9 @@ import { fileURLToPath } from 'node:url'
 import { createAgent, readFile } from '../src/agent.mjs'
 import { createWeb } from '../src/server.mjs'
 import { redact, token } from '../src/security.mjs'
+import { createRequire } from 'node:module'
+import { Accounts } from '../src/accounts.mjs'
+const {signature}=createRequire(import.meta.url)('../src/ledger.cjs')
 const root=fileURLToPath(new URL('../../',import.meta.url))
 async function listen(app){const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));return {server,url:`http://127.0.0.1:${server.address().port}`}}
 async function close(server){await new Promise(r=>server.close(r))}
@@ -36,6 +39,34 @@ async function fixture(){
 test('credential redaction covers headers, multi-cookie, URL userinfo, JSON and emails',()=>{
     const s=redact('Cookie: A=COOKIESECRET; B=SECONDSECRET\nAuthorization: Basic AUTHSECRET\nhttp://user:PROXYSECRET@proxy.invalid\nhttps://api.telegram.org/bot123:TOKENVALUE/sendMessage\n{"totpSecret":"TOTPSECRET","accessToken":"ACCESSSECRET"}\nalice@example.invalid')
     for(const v of ['COOKIESECRET','SECONDSECRET','AUTHSECRET','PROXYSECRET','TOKENVALUE','TOTPSECRET','ACCESSSECRET','alice@'])assert.ok(!s.includes(v),v)
+})
+test('interactive login and recovery APIs require admin, CSRF, password and account-bound ownership',async()=>{
+ const f=await fixture()
+ try{
+  assert.equal((await f.request('/tasks')).res.status,401)
+  assert.equal((await f.request('/sessions')).res.status,401)
+  assert.equal((await f.request('/login-interaction',{action:'frame',accountId:'invalid'})).res.status,401)
+  await f.login()
+  const id=f.agent.snapshot().accounts[0].id
+  assert.equal((await f.request('/login-interaction',{action:'start',accountId:id},{csrfOverride:'wrong'})).res.status,403)
+  assert.equal((await f.request('/login-interaction',{action:'start',accountId:id,password:'bad',confirmation:'仅人工登录，不解除风险暂停'})).res.status,403)
+  assert.equal((await f.request('/login-interaction',{action:'frame',accountId:id})).res.status,403)
+  assert.equal((await f.request('/login-interaction',{action:'evaluate',accountId:id})).res.status,400)
+  assert.equal((await f.request('/tasks/recovery',{id:'absent'},{csrfOverride:'wrong'})).res.status,403)
+  assert.equal((await f.request('/tasks/recovery',{id:'absent'})).res.status,404)
+  const raw=await fetch(f.a.url+'/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId:id,action:'frame',owner:token()})});assert.equal(raw.status,401)
+ }finally{await f.cleanup()}
+})
+test('recovery refuses changed config, unverified sessions, uncertain steps, STOP and duplicate reservations',async()=>{
+ const f=await fixture()
+ try{await f.login();fs.writeFileSync(path.join(f.env.APP_DIR,'config/config.json'),'{}')
+  const accounts=new Accounts(f.env).runtime().accounts,id=accounts[0].id,sig=signature(f.env,accounts,{})
+  f.agent.ledger.create('changed','wrong',0,0,[id]);f.agent.ledger.finish('changed','failed');assert.equal((await f.request('/tasks/recovery',{id:'changed'})).data.reason,'config_changed')
+  f.agent.ledger.create('unchecked',sig,0,0,[id]);f.agent.ledger.finish('unchecked','failed');assert.equal((await f.request('/tasks/recovery',{id:'unchecked'})).data.reason,'session_recheck_required')
+  f.agent.ledger.create('suspect',sig,0,0,[id]);f.agent.ledger.event('suspect',id,'account.started');f.agent.ledger.interrupt('suspect');assert.equal((await f.request('/tasks/recovery',{id:'suspect'})).data.reason,'step_suspect')
+  fs.writeFileSync(path.join(f.env.STATE_DIR,'STOP'),'Microsoft risk - manual review');assert.equal((await f.request('/tasks/recovery',{id:'unchecked'})).data.reason,'risk_or_manual_pause');assert.equal((await f.request('/tasks/recovery',{id:'unchecked',execute:true,confirmation:'只继续未开始账号'})).res.status,409)
+  f.agent.ledger.db.prepare("UPDATE runs SET state='recovery_requested' WHERE id='unchecked'").run();assert.equal((await f.request('/tasks/recovery',{id:'unchecked'})).data.reason,'run_not_recoverable')
+ }finally{await f.cleanup()}
 })
 test('proc reads and symbolic-link log reads do not produce false status or leak files',t=>{
     if (!readFile(`/proc/${process.pid}/cmdline`).length && !process.env.CI) { t.skip('Local sandbox PID namespace does not match /proc; real Docker CI may not skip'); return }

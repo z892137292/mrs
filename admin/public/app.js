@@ -1,7 +1,7 @@
 'use strict'
 let csrf='',initialized=false,page='dashboard',reviewNonce='',toastTimer,refreshing=false
 const $=id=>document.getElementById(id)
-const names={dashboard:'控制台',accounts:'账号管理',tasks:'任务管理',logs:'日志中心',notifications:'消息通知',settings:'系统设置',audit:'审计记录'}
+const names={dashboard:'控制台',accounts:'账号管理',tasks:'任务管理',logs:'日志中心',notifications:'消息通知',settings:'系统设置',audit:'审计记录',login:'登录交互',history:'执行历史',exceptions:'异常中心',recovery:'恢复中心'}
 const events={'task.started':'任务执行开始','task.completed':'任务已完成','task.failed':'任务失败','task.paused':'任务暂停','task.auth.required':'登录验证需人工核查',task_started:'任务开始',task_finished:'任务完成',task_failed:'任务失败',circuit_open:'连续失败熔断',risk_paused:'微软风控 / 限制',verification_required:'登录验证要求',account_paused:'账号暂停',configuration_applied:'账号配置保存',container_started:'容器启动',service_unavailable:'关键服务异常',service_recovered:'服务恢复',test:'测试通知'}
 const states={success:'成功',failed:'失败',risk_paused:'风险暂停',paused:'暂停',stopped:'已停止',ok:'成功',skipped_bot_warning:'风控停止',sent:'已发送',pending:'待发送',sending:'发送中',dropped:'队列丢弃',unknown:'未知'}
 function toast(message){$('toast').textContent=message;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>{$('toast').hidden=true},6000)}
@@ -31,6 +31,7 @@ async function startLiveEvents(){
  for(const e of initial)renderLiveEvent(e)
  if(liveSource || $('shell').hidden)return
  const stream=new EventSource('/api/events/live')
+ stream.addEventListener('gap',()=>{seenLive.clear();$('live-timeline').textContent='历史存在缺口，已重新读取真实运行快照';refreshRuns().catch(()=>{})})
  liveSource=stream
  stream.onopen=()=>{$('live-status').textContent='实时连接中';refresh().catch(()=>{})}
  stream.onerror=()=>{$('live-status').textContent='连接中断，正在自动重连'}
@@ -47,14 +48,14 @@ function stopLiveEvents(){
  $('live-timeline').textContent='等待真实事件'
 }
 function metric(title,content,note){const el=document.createElement('div');el.className='metric';for(const [tag,text]of[['small',title],['strong',content],['p',note]]){const child=document.createElement(tag);child.textContent=value(text);el.append(child)}return el}
-async function sessionState(){const s=await api('/session');csrf=s.csrf;initialized=s.initialized;$('auth').hidden=s.authenticated;$('shell').hidden=!s.authenticated;if(!s.authenticated)stopLiveEvents();$('bootstrap-label').hidden=initialized;$('auth-hint').textContent=initialized?'登录查看真实任务与账号运行状态':'首次启动：使用部署时生成的初始化令牌创建管理员（密码至少 12 位）';$('auth-form').querySelector('button').textContent=initialized?'登录':'初始化管理员';return s}
+async function sessionState(){const s=await api('/session');csrf=s.csrf;initialized=s.initialized;$('auth').hidden=s.authenticated;$('shell').hidden=!s.authenticated;if(!s.authenticated){stopLiveEvents();stopLoginView()}$('bootstrap-label').hidden=initialized;$('auth-hint').textContent=initialized?'登录查看真实任务与账号运行状态':'首次启动：使用部署时生成的初始化令牌创建管理员（密码至少 12 位）';$('auth-form').querySelector('button').textContent=initialized?'登录':'初始化管理员';return s}
 $('auth-form').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget,f=Object.fromEntries(new FormData(form));try{if(!initialized){await api('/setup',f);form.reset();await sessionState();toast('管理员已创建，请登录')}else{await api('/login',f);form.reset();await sessionState();await startLiveEvents();await refresh()}}catch(e){toast(e.message)}})
 $('logout').onclick=async()=>{try{await api('/logout',{});await sessionState()}catch(e){toast(e.message)}}
 for(const b of document.querySelectorAll('nav button'))b.onclick=async()=>{page=b.dataset.page;for(const n of document.querySelectorAll('nav button'))n.classList.toggle('selected',n===b);for(const p of document.querySelectorAll('.page'))p.hidden=p.id!==page;$('page-title').textContent=names[page];try{if(page==='notifications')await loadNotifications(true);if(page==='logs')await loadLogs();await refresh()}catch(e){toast(e.message)}}
 async function refresh(){if(refreshing || $('shell').hidden)return;refreshing=true;try{
  const s=await api('/snapshot');$('connection').textContent=s.active?'任务运行中':s.paused?'任务暂停':'服务在线';$('risk-banner').hidden=!s.paused;$('risk-banner').textContent=(s.risk?'需要人工核查：':'任务已暂停：')+s.pauseReason
  const setup=s.settings.setup;const banner=$('setup-banner');banner.hidden=!setup.issues.length;banner.textContent=setup.issues.length?'配置检查：'+setup.issues.join('；')+'。已填写账号不代表微软登录成功。':''
- $('metrics').replaceChildren(metric('运行状态',s.active?'正在运行':s.paused?'已暂停':'空闲','共用原有任务互斥锁'),metric('最近结果',states[s.last.result]||'暂无记录',datetime(s.last.finishedAt)),metric('报告积分变化',value(s.points.reportedChange),s.points.source),metric('当前真实余额','未知','没有独立核验余额来源'))
+ $('metrics').replaceChildren(metric('运行状态',s.active?'正在运行':s.paused?'已暂停':'空闲','共用原有任务互斥锁'),metric('最近进程结果',states[s.last.result]||'暂无记录','包装器结果；具体阶段以运行证据为准 '+datetime(s.last.finishedAt)),metric('报告积分变化',value(s.points.reportedChange),s.points.source),metric('当前真实余额','未知','实时核验余额见会话记录；历史余额不是当前余额'))
  list('overview',[['上次结束',datetime(s.last.finishedAt)],['本次开始（日志）',s.startedAt],['本次耗时',s.elapsedSeconds===null?'无运行中任务':s.elapsedSeconds+' 秒（从任务锁取得后计时）'],['最近 Bot 耗时',s.reportedAttemptSeconds===null?null:s.reportedAttemptSeconds+' 秒（不含等待）'],['下次计划触发',datetime(s.settings.nextScheduledAt)],['任务触发来源',s.last.trigger],['连续失败',s.failures]])
  list('health',[['服务连接',s.dockerStatus],['调度器进程',s.health.schedulerProcesses],['Chromium 进程',s.health.chromiumProcesses],['运行用户',s.uid],['健康说明',s.health.note]])
  await accountRows(s.accounts)
@@ -63,6 +64,8 @@ async function refresh(){if(refreshing || $('shell').hidden)return;refreshing=tr
  $('directory-status').textContent=s.settings.directories.map(d=>d.name+'：'+(d.readable?'目录存在':'目录不可用')).join(' · ')
  $('observed').textContent='状态采集：'+datetime(s.observedAt)
  if(page==='dashboard'){const es=await api('/events');$('events').replaceChildren();if(!es.length)$('events').textContent='暂无真实事件';for(const e of es.slice(0,10)){const div=document.createElement('div');div.className='event-row';const label=document.createElement('span'),time=document.createElement('small');label.textContent=(events[e.kind]||e.kind)+' · '+(states[e.result]||e.result||e.reason||'已记录');time.textContent=datetime(e.time);div.append(label,time);$('events').append(div)}}
+ if(['history','exceptions','recovery','tasks','dashboard'].includes(page))await refreshRuns()
+ if(page==='login')await loginRecords()
  if(page==='audit')rows('audit-rows',(await api('/audit')).map(a=>[datetime(a.time),a.actor,a.action,a.result]))
  if(page==='notifications')await loadNotifications(false)
  if(page==='logs' && $('log-select').value)await showLog()
@@ -95,3 +98,18 @@ function openAccount(id){editingId=id;const form=$('account-form');form.reset();
 $('add-account').onclick=()=>openAccount(null)
 $('account-cancel').onclick=()=>{$('account-form').reset();$('account-dialog').close()}
 $('account-form').onsubmit=async e=>{e.preventDefault();const form=e.currentTarget,f=form.elements,v=Object.fromEntries(new FormData(form));for(const k of ['clearTotp','clearProxyCredentials'])delete v[k];for(const k of ['enabled','proxyHttp','saveFingerprintMobile','saveFingerprintDesktop'])v[k]=f[k].checked;v.proxyPort=Number(v.proxyPort);if(editingId && !v.email)delete v.email;v.clearSecrets=[...(f.clearTotp.checked?['totpSecret']:[]),...(f.clearProxyCredentials.checked?['proxyUsername','proxyPassword']:[])];try{const r=await api('/accounts',{action:'save',id:editingId,revision:accountRevision,values:v});form.reset();$('account-dialog').close();accountRevision=r.revision;accountConfig=r.accounts;toast(r.message);await refresh()}catch(e){for(const k of ['password','totpSecret','proxyUsername','proxyPassword','recoveryEmail'])f[k].value='';toast(e.message)}}
+
+let loginAccount=null,loginTimer=null,frameBusy=false
+function stopLoginView(){clearInterval(loginTimer);loginTimer=null;$('login-frame').hidden=true;$('login-frame').removeAttribute('src');$('login-text').value='';$('interactive-admin').value=''}
+async function loginAction(action,input){return api('/login-interaction',{action,accountId:loginAccount,input})}
+async function loginFrame(){if(!loginAccount||frameBusy)return;frameBusy=true;try{const f=await loginAction('frame');$('login-stage').textContent='真实浏览器阶段：'+f.state;$('login-frame').src='data:image/jpeg;base64,'+f.image;$('login-frame').hidden=false}catch(e){$('login-stage').textContent=e.message}finally{frameBusy=false}}
+async function loginRecords(){const sel=$('login-account'),selected=sel.value;sel.replaceChildren();for(const a of accountConfig.filter(x=>x.enabled)){const o=document.createElement('option');o.value=a.id;o.textContent=a.label;sel.append(o)}if([...sel.options].some(o=>o.value===selected))sel.value=selected;const records=await api('/sessions');list('session-records',records.map(r=>[r.accountId+' / '+r.platform,datetime(r.lastVerifiedAt)+'；'+r.currentStatus+'；余额 '+value(r.availablePoints)+'（官方getuserinfo核验时值）']))}
+$('login-start').onclick=async()=>{loginAccount=$('login-account').value;try{await api('/login-interaction',{action:'start',accountId:loginAccount,password:$('interactive-admin').value,confirmation:'仅人工登录，不解除风险暂停'});await loginFrame();clearInterval(loginTimer);loginTimer=setInterval(loginFrame,4000);toast('已打开Core登录浏览器，其他任务由同一锁阻止')}catch(e){toast(e.message)}finally{$('interactive-admin').value=''}}
+$('login-reconnect').onclick=async()=>{loginAccount=$('login-account').value;try{const s=await loginAction('state');$('login-stage').textContent=s.state;await loginFrame();clearInterval(loginTimer);loginTimer=setInterval(loginFrame,4000)}catch(e){toast(e.message)}}
+$('login-close').onclick=async()=>{try{await loginAction('close');stopLoginView();loginAccount=null;toast('登录浏览器已关闭；未解除风险暂停')}catch(e){toast(e.message)}}
+$('login-frame').onclick=async e=>{const r=e.currentTarget.getBoundingClientRect();try{await loginAction('input',{type:'click',x:(e.clientX-r.left)*1000/r.width,y:(e.clientY-r.top)*760/r.height});await loginFrame()}catch(e){toast(e.message)}}
+$('login-type').onclick=async()=>{const text=$('login-text').value;$('login-text').value='';try{await loginAction('input',{type:'type',text});await loginFrame()}catch(e){toast(e.message)}}
+for(const [id,key]of [['login-enter','Enter'],['login-tab','Tab'],['login-backspace','Backspace']])$(id).onclick=async()=>{try{await loginAction('input',{type:'key',key});await loginFrame()}catch(e){toast(e.message)}}
+$('login-scroll').onclick=async()=>{try{await loginAction('input',{type:'scroll',deltaY:500});await loginFrame()}catch(e){toast(e.message)}}
+$('login-verify').onclick=async()=>{try{const r=await loginAction('verify',{identityConfirmed:$('login-identity').checked});stopLoginView();$('login-stage').textContent='核验并保存成功：'+datetime(r.verifiedAt)+'；'+r.source;await loginRecords();toast('同一Core会话已实时核验并保存；请关闭交互后运行任务')}catch(e){toast(e.message)}}
+async function refreshRuns(){const runs=await api('/tasks');for(const [id,data]of [['run-history',runs],['run-exceptions',runs.filter(r=>r.state!=='completed'||r.suspect)],['run-recovery',runs.filter(r=>!['running','completed'].includes(r.state))]]){const parent=$(id);parent.replaceChildren();if(!data.length)parent.textContent='暂无真实记录';for(const r of data){const card=document.createElement('div');card.className='run-card';const title=document.createElement('strong');title.textContent=r.id+' / '+r.state+(r.suspect?' / suspect需核查':'');card.append(title);const details=document.createElement('pre');details.textContent=r.evidence.map(e=>e.account+' '+e.stage+' '+e.state+(e.observed!==null?'：服务端配额积分已得 '+e.observed+'，剩余 '+e.remaining:'：无可信进度数字')).join('\n')||'没有已开始步骤的证据';card.append(details);if(id==='run-recovery'){const check=document.createElement('button');check.textContent='校验恢复条件';check.onclick=async()=>{try{const v=await api('/tasks/recovery',{id:r.id});toast(v.reason);if(v.eligible && confirm('只继续未开始账号；不重跑或跳过suspect步骤，确认？')){await api('/tasks/recovery',{id:r.id,execute:true,confirmation:'只继续未开始账号'});toast('安全恢复已接受；请查看新运行记录')}}catch(e){toast(e.message)}};card.append(check);const stop=document.createElement('button');stop.textContent='安全中止当前执行';stop.onclick=async()=>{try{await api('/control',{action:'stop'});toast('已提交原控制系统安全停止')}catch(e){toast(e.message)}};card.append(stop)}parent.append(card)}}}
