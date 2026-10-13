@@ -18,7 +18,7 @@ export function streamCoreEvents(journal, req, res, {intervalMs=750}={}) {
     after=0
   }
   const send=()=>{
-    if(closed || res.destroyed)return
+    if(closed || res.destroyed || res.writableEnded)return
     try {
       // Drain in bounded batches; no event may be silently skipped at the 100-row page limit.
       for(let batch=0;batch<10;batch++){
@@ -69,6 +69,7 @@ export class LiveEventHub {
     this.store.db.exec('DELETE FROM live_events WHERE id NOT IN (SELECT id FROM live_events ORDER BY id DESC LIMIT 2000)')
     const data='id: '+item.id+'\ndata: '+JSON.stringify(item)+'\n\n'
     for(const subscriber of this.subscribers){
+      if(subscriber.destroyed || subscriber.writableEnded){this.subscribers.delete(subscriber);continue}
       try{if(!subscriber.write(data)){this.subscribers.delete(subscriber);subscriber.end()}}
       catch{this.subscribers.delete(subscriber);subscriber.destroy()}
     }
@@ -86,10 +87,10 @@ export class LiveEventHub {
     // Backfill from durable Web data before joining live broadcasts.
     const bounds=this.store.db.prepare('SELECT MIN(id) AS first,MAX(id) AS last FROM live_events').get()
     if(after && (after<bounds.first-1 || after>bounds.last)){res.write('event: gap\ndata: {"reason":"history_gap","snapshotRequired":true}\n\n');after=0}
-    if(rawCursor){for(let batch=0;batch<20;batch++){const items=this.recent(after,500);for(const item of items){if(res.destroyed)return;if(!res.write('id: '+item.id+'\ndata: '+JSON.stringify(item)+'\n\n')){await new Promise(resolve=>{const done=()=>{res.off('drain',done);res.off('close',done);resolve()};res.once('drain',done);res.once('close',done)});if(res.destroyed)return}after=item.id}if(items.length<500)break}}
+    if(rawCursor){for(let batch=0;batch<20;batch++){const items=this.recent(after,500);for(const item of items){if(res.destroyed)return;if(!res.write('id: '+item.id+'\ndata: '+JSON.stringify(item)+'\n\n')){await new Promise(resolve=>{const done=()=>{res.off('drain',done);res.off('close',done);resolve()};res.once('drain',done);res.once('close',done)});if(res.destroyed)return}after=item.id}if(items.length===0)break}}
     else for(const item of this.latest(100))res.write('id: '+item.id+'\ndata: '+JSON.stringify(item)+'\n\n')
     this.subscribers.add(res)
-    const heartbeat=setInterval(()=>{req.sessionStore?.get(req.sessionID,(error,value)=>{if(error || !value?.admin)res.end()});if(!res.destroyed)res.write(': keepalive\n\n')},5000)
+    const heartbeat=setInterval(()=>{const ping=()=>{if(!res.destroyed && !res.writableEnded)res.write(': keepalive\n\n')};if(req.sessionStore)req.sessionStore.get(req.sessionID,(error,value)=>{if(error || !value?.admin){res.end();return}ping()});else ping()},5000)
     heartbeat.unref()
     res.on('close',()=>{clearInterval(heartbeat);this.subscribers.delete(res)})
   }
@@ -123,7 +124,7 @@ export class LiveEventHub {
           while((end=buffer.indexOf('\n\n'))>=0){
             const block=buffer.slice(0,end).replaceAll('\r','');buffer=buffer.slice(end+2)
             const data=block.split('\n').filter(s=>s.startsWith('data: ')).map(s=>s.slice(6)).join('\n')
-            if(block.startsWith('event: gap')){this.store.db.exec('BEGIN IMMEDIATE');try{this.store.db.exec('DELETE FROM live_events');this.store.set('coreLiveCursor',0);this.store.set('coreLiveGap',{time:new Date().toISOString(),reason:'retention_or_core_reset'});this.store.db.exec('COMMIT')}catch(e){this.store.db.exec('ROLLBACK');throw e}for(const client of this.subscribers){try{if(!client.write('event: gap\ndata: {"reason":"core_history_gap","snapshotRequired":true}\n\n'))client.end()}catch{client.destroy()}}}
+            if(block.startsWith('event: gap')){this.store.db.exec('BEGIN IMMEDIATE');try{this.store.db.exec('DELETE FROM live_events');this.store.set('coreLiveCursor',0);this.store.set('eventCursor',0);this.store.set('coreLiveGap',{time:new Date().toISOString(),reason:'retention_or_core_reset'});this.store.db.exec('COMMIT')}catch(e){this.store.db.exec('ROLLBACK');throw e}for(const client of this.subscribers){try{if(!client.write('event: gap\ndata: {"reason":"core_history_gap","snapshotRequired":true}\n\n'))client.end()}catch{client.destroy()}}}
             else if(data)this.accept(JSON.parse(data))
           }
         }

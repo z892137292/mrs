@@ -51,13 +51,19 @@ try{
  let result=await agent.interactive.call(id,owner,'verify',{identityConfirmed:true});assert.equal(result.state,'verified');assert.equal(result.availablePoints,123);assert.match(result.source,/fixture/)
  await assert.rejects(()=>agent.interactive.call(id,owner,'frame'),/不允许/)
  await agent.interactive.close();execFileSync('/usr/bin/flock',['-n',path.join(env.STATE_DIR,'run.lock'),'true'])
+ // Actual stopped native sessions.db backup/restore into a NEW directory; never publish this private archive.
+ const archive=path.join(directory,'private-native.tar'),restored=path.join(directory,'restored-native');fs.mkdirSync(restored)
+ execFileSync('tar',['-C',directory,'-cf',archive,'sessions']);fs.chmodSync(archive,0o600);execFileSync('tar',['-C',restored,'-xf',archive])
+ const native=require(path.join(upstream,'dist/util/SessionStore.js'));assert.ok(native.loadSession(path.join(restored,'sessions'),'fixture@example.invalid',true).storageState.cookies.some(c=>c.name==='fixture'&&c.value==='verified'));native.closeSessionStore()
  await agent.interactive.start(id,owner)
  result=await agent.interactive.call(id,owner,'verify',{});assert.equal(result.state,'verified') // actual cookie restored by original Browser factory
  await agent.interactive.close()
  identity='DIFFERENT-ACCOUNT';await agent.interactive.start(id,owner);await assert.rejects(()=>agent.interactive.call(id,owner,'verify',{identityConfirmed:true}),/身份/);await agent.interactive.close()
- identity='FIXTURE-ONE';risk=true;await agent.interactive.start(id,owner);await assert.rejects(()=>agent.interactive.call(id,owner,'verify',{}),/风险/);await assert.rejects(()=>agent.interactive.call(id,owner,'input',{type:'key',key:'Enter'}),/禁止/);await agent.interactive.close()
+ identity='FIXTURE-ONE';risk=true;await agent.interactive.start(id,owner);await assert.rejects(()=>agent.interactive.call(id,owner,'verify',{}),/风险/);await assert.rejects(()=>agent.interactive.call(id,owner,'input',{type:'key',key:'Enter'}),error=>error.status===409);await agent.interactive.close()
  assert.ok(fs.existsSync(path.join(env.STATE_DIR,'STOP')))
  const serialized=JSON.stringify(agent.journal.list());assert.ok(!serialized.includes('HUMAN_INPUT') && !serialized.includes('SYNTHETIC_ONLY') && !serialized.includes('image'))
+ assert.ok(agent.journal.list().some(e=>e.kind==='risk_paused'))
+ assert.ok(agent.journal.list().some(e=>e.kind==='verification_required'))
  const current=JSON.parse(fs.readFileSync(path.join(env.CONTROL_DATA_DIR,'verified-sessions.json')));assert.ok(current[`${id}:mobile`].storageHash)
  // Real authenticated Web -> Core -> SAME native browser; Web restart retains owner/session.
  risk=false
@@ -81,5 +87,5 @@ try{
   assert.equal((await request('/logout',{})).status,200)
   assert.equal((await request('/tasks')).status,401)
  }finally{webServer.closeAllConnections();await new Promise(r=>webServer.close(r));await web.close()}
- console.log('PASS: real non-root upstream Chromium, CDP input/screenshot, manual waiting, same flock, binding isolation, fresh HTTP/cookie verification, native session DB restoration, identity mismatch/risk refusal and cleanup; NOT Microsoft online acceptance')
+ console.log('PASS: real non-root upstream Chromium, compiled evidence hook, CDP input/screenshot, manual waiting, same flock, binding isolation, fresh HTTP/cookie verification, native session DB restart and private tar backup/restore, identity mismatch/risk refusal, Web/Core HTTP plus Web restart and cleanup; NOT Microsoft online acceptance')
 }finally{await agent.shutdown();server.closeAllConnections();await new Promise(r=>server.close(r));await new Promise(r=>fixture.close(r));fs.rmSync(directory,{recursive:true,force:true})}

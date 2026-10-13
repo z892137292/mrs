@@ -12,7 +12,8 @@ const stateFile=path.join(env.CONTROL_DATA_DIR || path.join(dir,'control-data'),
 const allowed=new Set(['rewards.bing.com','www.bing.com','login.live.com','login.microsoftonline.com','account.live.com','account.microsoft.com'])
 const fixtures=env.MRS_LOGIN_FIXTURE_URL && env.MRS_OFFLINE_TEST==='true'
 const permitted=url=>{try{const u=new URL(url);return fixtures?u.origin===new URL(env.MRS_LOGIN_FIXTURE_URL).origin:u.protocol==='https:'&&allowed.has(u.hostname)}catch{return false}}
-const emit=(event)=>process.send?.({event,state})
+const emitted=new Set()
+const emit=(event)=>{if(event!=='session.screenshot.ready'){if(emitted.has(event))return;emitted.add(event)}process.send?.({event,state})}
 function pause(reason){const stop=path.join(env.STATE_DIR || path.join(dir,'state'),'STOP');try{fs.writeFileSync(stop,reason,{flag:'wx',mode:0o600})}catch(e){if(e.code!=='EEXIST')throw e}}
 async function close(){if(closed)return;closed=true;clearInterval(timer);const browser=context?.browser();await context?.close().catch(()=>{});await browser?.close().catch(()=>{});sessionStore?.closeSessionStore();process.exit(0)}
 let sessionStore,account,config,revision

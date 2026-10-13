@@ -116,3 +116,19 @@ test('browser replay drains more than 500 durable events, reports gaps, and proj
  try{const response=await fetch(`http://127.0.0.1:${server.address().port}/live?after=1`,{signal:abort.signal}),reader=response.body.getReader();let text='';await eventually(async()=>{const x=await reader.read();text+=new TextDecoder().decode(x.value);return text.includes('id: 800\n')});assert.equal((text.match(/data: /g)||[]).length,799);assert.ok(!text.includes('NEVER_EXPOSE'));assert.ok(text.includes('aaaaaaaaaaaaaaaa'));assert.ok(!hub.accept({id:799,time:'now',kind:'duplicate'}));assert.equal(hub.cursor(),800)
  }finally{abort.abort();await hub.stop();server.closeAllConnections();await new Promise(r=>server.close(r));store.close();fs.rmSync(root,{recursive:true,force:true})}
 })
+test('retained browser history declares gaps and expired authentication closes the live connection',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'mrs-gap-')),store=new Store(root),hub=new LiveEventHub(store,{baseUrl:'http://127.0.0.1',token:token()}),app=express()
+ for(let id=1;id<=2100;id++)hub.accept({id,time:'2026-10-13T00:00:00Z',kind:'task.step.progress'})
+ app.get('/live',(req,res)=>{req.sessionID='expired';req.sessionStore={get:(_id,callback)=>callback(null,null)};hub.subscribe(req,res)})
+ const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));const abort=new AbortController()
+ try{const response=await fetch(`http://127.0.0.1:${server.address().port}/live?after=1`,{signal:abort.signal}),reader=response.body.getReader();let text='',done=false
+  await eventually(async()=>{const part=await reader.read();done=part.done;text+=new TextDecoder().decode(part.value);return done})
+  assert.ok(text.includes('event: gap'));assert.ok(text.includes('id: 2100\n'));assert.equal((text.match(/id: /g)||[]).length,2000);assert.equal(hub.subscribers.size,0)
+ }finally{abort.abort();await hub.stop();server.closeAllConnections();await new Promise(r=>server.close(r));store.close();fs.rmSync(root,{recursive:true,force:true})}
+})
+test('Core reset rewinds both durable cursors rather than losing later risk notifications',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'mrs-core-reset-')),store=new Store(root)
+ const stream='event: gap\ndata: {"reason":"retention_or_core_reset"}\n\nid: 1\ndata: {"id":1,"time":"2026-10-13T00:00:00Z","kind":"risk_paused","reason":"manual review"}\n\n'
+ const hub=new LiveEventHub(store,{baseUrl:'http://127.0.0.1',token:token(),fetchImpl:async()=>new Response(stream,{headers:{'content-type':'text/event-stream'}})})
+ try{hub.accept({id:900,time:'old',kind:'old'});store.set('eventCursor',900);hub.start();await eventually(()=>hub.cursor()===1);assert.equal(store.get('eventCursor'),0);assert.equal(hub.recent()[0].kind,'risk_paused');assert.ok(store.get('coreLiveGap').time)}finally{await hub.stop();store.close();fs.rmSync(root,{recursive:true,force:true})}
+})
